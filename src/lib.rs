@@ -79,8 +79,9 @@ impl State {
     }
 
     pub fn print_domain(&self) {
-        for d in self.domains {
-            println!("{:09b}", d >> 1);
+        for bit in self.domains {
+            println!("{:09b}", bit >> 1);
+            println!("{:}", bit.trailing_zeros());
         }
     }
 }
@@ -113,6 +114,15 @@ impl Constraint {
 #[inline]
 fn bit_of_digit(d: u8) -> Domain {
     1u16 << d
+}
+
+#[inline]
+fn _digit_of_bit(bit: Domain) -> Option<u8> {
+    if bit == 0 || !bit.is_power_of_two() {
+        None
+    } else {
+        Some(bit.trailing_zeros() as u8)
+    }
 }
 
 fn propagate_all_diff(st: &mut State, cells: &[CellIx; 9]) -> Result<bool, Contradiction> {
