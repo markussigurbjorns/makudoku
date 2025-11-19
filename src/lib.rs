@@ -77,6 +77,12 @@ impl State {
             self.domains[i as usize] = old;
         }
     }
+
+    pub fn print_domain(&self) {
+        for d in self.domains {
+            println!("{:09b}", d >> 1);
+        }
+    }
 }
 
 pub enum Constraint {
@@ -381,6 +387,8 @@ mod tests {
         eng.load_givens(p).unwrap();
         assert!(eng.search().unwrap());
         assert!(eng.solved());
+
+        eng.state.print_domain();
     }
 
     #[test]
