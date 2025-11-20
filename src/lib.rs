@@ -196,6 +196,7 @@ pub struct Engine {
     pub state: State,
     pub constraints: Vec<Constraint>,
     watchers: Vec<Vec<usize>>,
+    branches: u32,
 }
 
 impl Engine {
@@ -204,6 +205,7 @@ impl Engine {
             state: State::new(),
             constraints: Vec::new(),
             watchers: vec![Vec::new(); NN],
+            branches: 0,
         }
     }
 
@@ -304,22 +306,29 @@ impl Engine {
             self.enqueue_all();
         }
         loop {
-            match self.propagate()? {
-                Solve::Progress => {
-                    if self.solved() {
-                        return Ok(true);
+            match self.propagate() {
+                Ok(res) => match res {
+                    Solve::Progress => {
+                        if self.solved() {
+                            return Ok(true);
+                        }
                     }
+                    Solve::Solved => break,
+                    Solve::Stalled => break,
+                },
+                Err(_) => {
+                    return Ok(false);
                 }
-                Solve::Solved => break,
-                Solve::Stalled => break,
             }
+
+            {}
         }
         if self.solved() {
             return Ok(true);
         }
 
         if self.state.domains.iter().any(|&m| m == 0) {
-            return Err(Contradiction);
+            return Ok(false);
         }
 
         // pick MRV cell
@@ -338,12 +347,21 @@ impl Engine {
             let d = m.trailing_zeros() as u8;
             let bit = bit_of_digit(d);
             m &= !bit;
-
+            self.branches += 1;
             // try branch
             if self.state.assign(i, bit).is_ok() {
                 self.enqueue_cell_constraints(i);
-                if self.search()? {
-                    return Ok(true);
+                let res = self.search();
+                match res {
+                    Ok(true) => {
+                        return Ok(true);
+                    }
+                    Ok(false) => {
+                        // branch failed, try next digit
+                    }
+                    Err(Contradiction) => {
+                        // branch failed, try next digit
+                    }
                 }
             }
             self.state.backtrack_to(trail_len);
@@ -391,7 +409,7 @@ mod tests {
 
     #[test]
     fn solves_classic() {
-        let p = "7.4..6..9.8..1......3.2.45.........2.56...78.1.........25.3.1......4..6.9..5..3.7";
+        let p = "2...7.1.3.7..8..5.3....6.....6......91..5..28......5.....3....4.2..9..7.5.4.1...6";
         let mut eng = Engine::new();
         add_all_sudoku_constraints(&mut eng);
         eng.load_givens(p).unwrap();
@@ -399,6 +417,7 @@ mod tests {
         assert!(eng.solved());
 
         eng.state.print_domain();
+        println!("branches: {:}", eng.branches);
     }
 
     #[test]
