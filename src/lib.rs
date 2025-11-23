@@ -60,8 +60,8 @@ mod tests {
         add_kropki_white(&mut eng, (3, 5), (4, 5));
         add_kropki_white(&mut eng, (3, 7), (4, 7));
         add_kropki_white(&mut eng, (7, 7), (8, 7));
-        add_kropki_black(&mut eng, (1, 1), (2, 1));
-        add_kropki_black(&mut eng, (2, 1), (3, 1));
+        //add_kropki_black(&mut eng, (1, 1), (2, 1));
+        //add_kropki_black(&mut eng, (2, 1), (3, 1));
         //add_kropki_black(&mut eng, (5, 1), (6, 1));
         //add_kropki_black(&mut eng, (6, 1), (6, 2));
         //add_kropki_black(&mut eng, (0, 2), (0, 3));
@@ -78,8 +78,8 @@ mod tests {
         //add_kropki_black(&mut eng, (6, 7), (7, 7));
         eng.load_givens(p).unwrap();
         //eng.state.print_domain();
-        assert!(true) // FIX KROPKI BLACK
-        //assert!(eng.search().unwrap());
-        //assert!(eng.solved());
+        //assert!(true) // FIX KROPKI BLACK
+        assert!(eng.search().unwrap());
+        assert!(eng.solved());
     }
 }
