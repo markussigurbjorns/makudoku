@@ -1,4 +1,4 @@
-use crate::{CellIx, Contradiction, DIGITS_MASK, Domain, EVEN_MASK, State};
+use crate::{CellIx, Contradiction, DIGITS_MASK, Domain, State};
 
 pub enum Constraint {
     AllDifferent { cells: [CellIx; 9] },
@@ -306,14 +306,48 @@ mod tests {
 
         // b is fixed to 3
         st.domains[a as usize] = DIGITS_MASK;
-        st.domains[b as usize] = mask(&[4]);
+        st.domains[b as usize] = mask(&[3]);
 
-        println!("domain a is {:}", st.domains[a as usize]);
         let changed = propagate_kropki_black(&mut st, a, b).unwrap();
         assert!(changed);
 
-        assert_eq!(st.domains[a as usize], mask(&[2, 8]));
-        println!("domain a is {:}", st.domains[a as usize]);
-        assert_eq!(st.domains[b as usize], mask(&[4]));
+        assert_eq!(st.domains[a as usize], mask(&[6]));
+        assert_eq!(st.domains[b as usize], mask(&[3]));
+    }
+
+    #[test]
+    fn kropki_black_symmetric_narrowing() {
+        let mut st = State::new();
+        let a: CellIx = 0;
+        let b: CellIx = 1;
+
+        // a can be {1,2,3,4}, b can be {2,3,4,5}
+        st.domains[a as usize] = mask(&[1, 2, 3, 4]);
+        st.domains[b as usize] = mask(&[2, 3, 4, 5]);
+
+        let changed = propagate_kropki_black(&mut st, a, b).unwrap();
+        assert!(changed);
+
+        // Valid ratio-2 pairs in 1..9: (1,2), (2,4), (3,6), (4,8)
+        // Intersect with our sets:
+        //   a ∈ {1,2,3,4}, b ∈ {2,3,4,5}
+        // Possible pairs: (1,2), (2,4)
+        // So a ∈ {1,2,4} , b ∈ {2,4}
+        assert_eq!(st.domains[a as usize], mask(&[1, 2, 4]));
+        assert_eq!(st.domains[b as usize], mask(&[2, 4]));
+    }
+
+    #[test]
+    fn kropki_black_detects_contradiction_when_no_ratio_in_two_pairs() {
+        let mut st = State::new();
+        let a: CellIx = 0;
+        let b: CellIx = 1;
+
+        // a is fixed to 1, b is fixed to 4 -> no ratio of two
+        st.domains[a as usize] = mask(&[1]);
+        st.domains[b as usize] = mask(&[4]);
+
+        let res = propagate_kropki_black(&mut st, a, b);
+        assert!(res.is_err());
     }
 }

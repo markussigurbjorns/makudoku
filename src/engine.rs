@@ -225,3 +225,67 @@ pub fn add_kropki_black(e: &mut Engine, a_rc: (usize, usize), b_rc: (usize, usiz
     let b = idx(b_rc.0, b_rc.1);
     e.add_constraint(Constraint::KropkiBlack { a, b });
 }
+
+#[cfg(test)]
+mod tests {
+    use std::usize;
+
+    use super::*;
+    use crate::{DIGITS_MASK, Domain, types::bit_of_digit};
+
+    fn _mask(digits: &[u8]) -> Domain {
+        digits.iter().fold(0, |acc, &d| acc | bit_of_digit(d))
+    }
+
+    #[test]
+    fn new_initalizes_state_and_watchers() {
+        let eng = Engine::new();
+
+        // no constraints yet
+        assert!(eng.constraints.is_empty());
+
+        // watchers for all NN cells
+        assert_eq!(eng.watchers.len(), NN);
+        assert!(eng.watchers.iter().all(|v| v.is_empty()));
+
+        // state initialized normally
+        for d in eng.state.domains.iter() {
+            assert_eq!(*d, DIGITS_MASK)
+        }
+        assert!(eng.state.trail.is_empty());
+        assert!(eng.state.queue.is_empty());
+    }
+
+    #[test]
+    fn add_constraint_registers_watchers_for_cells_in_scope() {
+        let mut eng = Engine::new();
+        let cells: [CellIx; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+
+        // all different first row
+        let c = Constraint::AllDifferent { cells };
+        eng.add_constraint(c);
+
+        // ensure one constraint
+        assert_eq!(eng.constraints.len(), 1);
+
+        // cells in first row should have watcher 0
+        for c in 0..N {
+            let cell_ix = idx(0, c) as usize;
+            assert_eq!(
+                eng.watchers[cell_ix],
+                vec![0],
+                "cell {} missing watcher",
+                cell_ix
+            )
+        }
+
+        // other cells not in row 0 should have no wathcers
+        let other = idx(1, 0) as usize;
+        assert!(eng.watchers[other].is_empty());
+    }
+
+    //#[test]
+    //fn enqueue_all_pushes_all_constraints_into_queue() {
+    //    let mut eng = Engine::new();
+    //}
+}
