@@ -49,36 +49,23 @@ mod tests {
 
     #[test]
     fn solves_kropki() {
-        let p = ".......57...............................................................57.......";
+        let p = "...........12......3..7.....6..5......84....................123......456......789";
         let mut eng = Engine::new();
         add_all_sudoku_constraints(&mut eng);
-        add_kropki_white(&mut eng, (0, 1), (1, 1));
-        add_kropki_white(&mut eng, (4, 1), (5, 1));
-        add_kropki_white(&mut eng, (4, 3), (5, 3));
-        add_kropki_white(&mut eng, (3, 4), (4, 4));
-        add_kropki_white(&mut eng, (4, 4), (5, 4));
-        add_kropki_white(&mut eng, (3, 5), (4, 5));
-        add_kropki_white(&mut eng, (3, 7), (4, 7));
-        add_kropki_white(&mut eng, (7, 7), (8, 7));
-        //add_kropki_black(&mut eng, (1, 1), (2, 1));
-        //add_kropki_black(&mut eng, (2, 1), (3, 1));
-        //add_kropki_black(&mut eng, (5, 1), (6, 1));
-        //add_kropki_black(&mut eng, (6, 1), (6, 2));
-        //add_kropki_black(&mut eng, (0, 2), (0, 3));
-        //add_kropki_black(&mut eng, (8, 2), (8, 3));
-        //add_kropki_black(&mut eng, (3, 3), (4, 3));
-        //add_kropki_black(&mut eng, (8, 3), (8, 4));
-        //add_kropki_black(&mut eng, (0, 4), (0, 5));
-        //add_kropki_black(&mut eng, (0, 5), (0, 6));
-        //add_kropki_black(&mut eng, (4, 5), (5, 5));
-        //add_kropki_black(&mut eng, (8, 5), (8, 6));
-        //add_kropki_black(&mut eng, (2, 6), (2, 7));
-        //add_kropki_black(&mut eng, (2, 7), (3, 7));
-        //add_kropki_black(&mut eng, (5, 7), (6, 7));
-        //add_kropki_black(&mut eng, (6, 7), (7, 7));
+        add_kropki_white(&mut eng, (0, 2), (0, 3));
+        add_kropki_white(&mut eng, (1, 0), (1, 1));
+        add_kropki_white(&mut eng, (1, 4), (1, 5));
+        add_kropki_white(&mut eng, (4, 0), (4, 1));
+        add_kropki_white(&mut eng, (4, 4), (4, 5));
+        add_kropki_white(&mut eng, (5, 2), (5, 3));
+
+        add_kropki_black(&mut eng, (0, 1), (1, 1));
+        add_kropki_black(&mut eng, (0, 4), (1, 4));
+        add_kropki_black(&mut eng, (2, 0), (3, 0));
+        add_kropki_black(&mut eng, (2, 5), (3, 5));
+        add_kropki_black(&mut eng, (4, 1), (5, 1));
+        add_kropki_black(&mut eng, (4, 4), (5, 4));
         eng.load_givens(p).unwrap();
-        //eng.state.print_domain();
-        //assert!(true) // FIX KROPKI BLACK
         assert!(eng.search().unwrap());
         assert!(eng.solved());
     }
