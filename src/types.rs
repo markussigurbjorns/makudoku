@@ -14,7 +14,7 @@ pub enum Solve {
     Stalled,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Contradiction;
 
 #[inline]

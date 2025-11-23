@@ -233,7 +233,7 @@ mod tests {
     use super::*;
     use crate::{DIGITS_MASK, Domain, types::bit_of_digit};
 
-    fn _mask(digits: &[u8]) -> Domain {
+    fn mask(digits: &[u8]) -> Domain {
         digits.iter().fold(0, |acc, &d| acc | bit_of_digit(d))
     }
 
@@ -284,8 +284,206 @@ mod tests {
         assert!(eng.watchers[other].is_empty());
     }
 
-    //#[test]
-    //fn enqueue_all_pushes_all_constraints_into_queue() {
-    //    let mut eng = Engine::new();
-    //}
+    #[test]
+    fn enqueue_all_pushes_all_constraints_into_queue() {
+        let mut eng = Engine::new();
+
+        // Add two fake AllDifferent constraints on two rows
+        for r in 0..2 {
+            let mut cells = [0u8; 9];
+            for c in 0..9 {
+                cells[c] = idx(r, c);
+            }
+            eng.add_constraint(Constraint::AllDifferent { cells });
+        }
+
+        eng.enqueue_all();
+
+        // We expect indices [0, 1] in the queue (order not hugely important)
+        assert_eq!(eng.state.queue.len(), 2);
+        let items: Vec<usize> = eng.state.queue.iter().copied().collect();
+        assert!(items.contains(&0));
+        assert!(items.contains(&1));
+    }
+
+    #[test]
+    fn enqueue_cell_constraints_uses_watchers() {
+        let mut eng = Engine::new();
+
+        // one constraint covering first row
+        let cells: [CellIx; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+        eng.add_constraint(Constraint::AllDifferent { cells });
+
+        // queue initially empty
+        assert!(eng.state.queue.is_empty());
+
+        // enqueu constraints for cell (0,3)
+        let cell = idx(0, 3);
+        eng.enqueue_cell_constraints(cell);
+
+        assert_eq!(eng.state.queue.len(), 1);
+        assert_eq!(eng.state.queue.pop_front(), Some(0));
+    }
+
+    #[test]
+    fn propagate_runs_constraint_and_clears_queue() {
+        let mut eng = Engine::new();
+
+        // all different on first row
+        let cells: [CellIx; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+        eng.add_constraint(Constraint::AllDifferent { cells });
+
+        // make cell (0,0) a singleton 1, others {1,2,3}
+        let c00 = idx(0, 0) as usize;
+        eng.state.domains[c00] = mask(&[1]);
+        for c in 1..N {
+            let ix = idx(0, c) as usize;
+            eng.state.domains[ix] = mask(&[1, 2, 3]);
+        }
+
+        // enqueue all and propagate
+        eng.enqueue_all();
+        let res = eng.propagate().unwrap();
+        assert_eq!(res, Solve::Progress);
+
+        // all row cells except (0,0) should no longer contain 1
+        let one = mask(&[1]);
+        for c in 1..N {
+            let ix = idx(0, c) as usize;
+            assert_eq!(
+                eng.state.domains[ix] & one,
+                0,
+                "cell (0,{}) still has digit 1",
+                c
+            );
+        }
+
+        // queue should now be empty
+        assert!(eng.state.queue.is_empty());
+    }
+
+    #[test]
+    fn load_givens_rejects_wrong_length() {
+        let mut eng = Engine::new();
+        let err = eng.load_givens("123").unwrap_err();
+        assert!(err.contains("need 81 chars"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn load_givens_rejects_invalid_char() {
+        let mut eng = Engine::new();
+        // 80 dots + 'x'
+        let mut s = ".".repeat(NN - 1);
+        s.push('x');
+
+        let err = eng.load_givens(&s).unwrap_err();
+        assert!(err.contains("invalid char"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn load_givens_sets_singletons_for_digits() {
+        let mut eng = Engine::new();
+
+        // "1" in first cell, rest dots
+        let mut s = String::new();
+        s.push('1');
+        s.push_str(&".".repeat(NN - 1));
+
+        eng.load_givens(&s).unwrap();
+
+        // first cell should be exactly digit 1
+        assert_eq!(eng.state.domains[0], mask(&[1]));
+
+        // some other cell still has full domain (no constraints added)
+        assert_eq!(eng.state.domains[1], DIGITS_MASK);
+    }
+
+    #[test]
+    fn load_givens_errors_on_assign_contradiction() {
+        let mut eng = Engine::new();
+
+        // manually restrict cell 0 to digit 1
+        eng.state.domains[0] = mask(&[1]);
+
+        // but givens say '2' in that cell
+        let mut s = String::new();
+        s.push('2');
+        s.push_str(&".".repeat(NN - 1));
+
+        let err = eng.load_givens(&s).unwrap_err();
+        assert_eq!(err, "contradiction from givens");
+    }
+
+    #[test]
+    fn solved_true_when_all_singletons() {
+        let mut eng = Engine::new();
+
+        for d in eng.state.domains.iter_mut() {
+            *d = mask(&[1]);
+        }
+
+        assert!(eng.solved());
+    }
+
+    #[test]
+    fn solved_false_when_any_multi_domain() {
+        let mut eng = Engine::new();
+
+        for d in eng.state.domains.iter_mut() {
+            *d = mask(&[1]);
+        }
+        // make one cell have 2 possibilities
+        eng.state.domains[10] = mask(&[1, 2]);
+
+        assert!(!eng.solved());
+    }
+    #[test]
+    fn choose_mrv_picks_smallest_non_singleton_domain() {
+        let mut eng = Engine::new();
+
+        // all singletons
+        for d in eng.state.domains.iter_mut() {
+            *d = mask(&[1]);
+        }
+
+        // cell 5: two values, cell 7: three values
+        eng.state.domains[5] = mask(&[1, 2]);
+        eng.state.domains[7] = mask(&[1, 2, 3]);
+
+        let mrv = eng.choose_mrv().unwrap();
+        assert_eq!(mrv, 5); // cell 5 should win (2 < 3)
+
+        // make cell 5 singleton again; now 7 is the only non-singleton
+        eng.state.domains[5] = mask(&[1]);
+        let mrv2 = eng.choose_mrv().unwrap();
+        assert_eq!(mrv2, 7);
+
+        // all singletons -> None
+        eng.state.domains[7] = mask(&[1]);
+        assert!(eng.choose_mrv().is_none());
+    }
+
+    #[test]
+    fn search_returns_true_when_already_solved() {
+        let mut eng = Engine::new();
+
+        // all domains singletons; no constraints
+        for d in eng.state.domains.iter_mut() {
+            *d = mask(&[1]);
+        }
+
+        let res = eng.search();
+        assert_eq!(res, Ok(true));
+    }
+
+    #[test]
+    fn search_returns_false_if_any_domain_empty() {
+        let mut eng = Engine::new();
+
+        // make one domain 0 (contradiction), rest arbitrary
+        eng.state.domains[0] = 0;
+
+        let res = eng.search();
+        assert_eq!(res, Ok(false));
+    }
 }
