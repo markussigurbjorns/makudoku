@@ -1,6 +1,7 @@
 #![allow(clippy::redundant_pub_crate)]
 mod constraints;
 mod engine;
+mod generator;
 mod state;
 mod types;
 
@@ -8,12 +9,20 @@ pub use constraints::Constraint;
 pub use engine::{Engine, add_all_sudoku_constraints, add_kropki_black, add_kropki_white};
 pub use state::State;
 pub use types::{
-    CellIx, Contradiction, DIGITS_MASK, Domain, EVEN_MASK, N, NN, Solve, box_of, col_of, row_of,
+    CellIx, Contradiction, DIGITS_MASK, Domain, EVEN_MASK, N, NN, Solve, bit_of_digit, box_of,
+    col_of, digit_of_bit, row_of,
 };
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn solve_empty() {
+        let mut eng = Engine::new();
+        assert!(eng.search().unwrap());
+        assert!(eng.solved());
+    }
 
     #[test]
     fn solves_classic() {

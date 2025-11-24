@@ -40,7 +40,7 @@ pub fn bit_of_digit(d: u8) -> Domain {
 }
 
 #[inline]
-pub fn _digit_of_bit(bit: Domain) -> Option<u8> {
+pub fn digit_of_bit(bit: Domain) -> Option<u8> {
     if bit == 0 || !bit.is_power_of_two() {
         None
     } else {
