@@ -3,6 +3,7 @@ use crate::{
     types::{bit_of_digit, idx},
 };
 
+#[derive(Clone)]
 pub struct Engine {
     pub state: State,
     pub constraints: Vec<Constraint>,
@@ -94,7 +95,6 @@ impl Engine {
         self.state.domains.iter().all(|&m| m.count_ones() == 1)
     }
 
-    /// Choose MRV cell (domain size >1 with minimal count). Returns None if all singletons.
     pub fn choose_mrv(&self) -> Option<CellIx> {
         let mut best: Option<(CellIx, u32)> = None;
         for i in 0..NN {
@@ -116,6 +116,8 @@ impl Engine {
         if self.state.trail.is_empty() && self.state.queue.is_empty() {
             self.enqueue_all();
         }
+
+        // First, propagate as far as we can
         loop {
             match self.propagate() {
                 Ok(res) => match res {
@@ -124,16 +126,15 @@ impl Engine {
                             return Ok(true);
                         }
                     }
-                    Solve::Solved => break,
-                    Solve::Stalled => break,
+                    Solve::Solved | Solve::Stalled => break,
                 },
                 Err(_) => {
+                    // contradiction at this node
                     return Ok(false);
                 }
             }
-
-            {}
         }
+
         if self.solved() {
             return Ok(true);
         }
@@ -145,6 +146,7 @@ impl Engine {
         // pick MRV cell
         let i = match self.choose_mrv() {
             None => {
+                // all singletons => solved
                 return Ok(true);
             }
             Some(i) => i,
@@ -158,27 +160,110 @@ impl Engine {
             let d = m.trailing_zeros() as u8;
             let bit = bit_of_digit(d);
             m &= !bit;
+
             self.branches += 1;
-            // try branch
+
             if self.state.assign(i, bit).is_ok() {
                 self.enqueue_cell_constraints(i);
                 let res = self.search();
                 match res {
                     Ok(true) => {
+                        // found a solution; DO NOT backtrack it away
                         return Ok(true);
                     }
                     Ok(false) => {
-                        // branch failed, try next digit
+                        // try next digit
                     }
                     Err(Contradiction) => {
-                        // branch failed, try next digit
+                        // also just try next digit
                     }
                 }
             }
+            // undo this branch
             self.state.backtrack_to(trail_len);
         }
 
         Ok(false)
+    }
+
+    pub fn count_solutions(&self, max: u32) -> u32 {
+        let mut eng = self.clone();
+
+        if eng.state.trail.is_empty() && eng.state.queue.is_empty() {
+            eng.enqueue_all();
+        }
+
+        let mut count = 0;
+        eng.search_limited(max, &mut count);
+        count
+    }
+
+    pub fn has_unique_solution(&mut self) -> bool {
+        self.count_solutions(2) == 1
+    }
+
+    fn search_limited(&mut self, max: u32, count: &mut u32) {
+        if *count >= max {
+            return;
+        }
+
+        // propagate
+        loop {
+            match self.propagate() {
+                Ok(Solve::Progress) => {
+                    if self.solved() {
+                        *count += 1;
+                        return;
+                    }
+                }
+                Ok(Solve::Stalled) | Ok(Solve::Solved) => break,
+                Err(Contradiction) => {
+                    // dead branch
+                    return;
+                }
+            }
+        }
+
+        if self.solved() {
+            *count += 1;
+            return;
+        }
+
+        if self.state.domains.iter().any(|&m| m == 0) {
+            return;
+        }
+
+        if *count >= max {
+            return;
+        }
+
+        let i = match self.choose_mrv() {
+            None => {
+                // all singletons, another solution
+                *count += 1;
+                return;
+            }
+            Some(i) => i,
+        };
+
+        let dom = self.state.domains[i as usize];
+        let trail_len = self.state.trail.len();
+        let mut m = dom;
+
+        while m != 0 && *count < max {
+            let d = m.trailing_zeros() as u8;
+            let bit = bit_of_digit(d);
+            m &= !bit;
+
+            self.branches += 1;
+
+            if self.state.assign(i, bit).is_ok() {
+                self.enqueue_cell_constraints(i);
+                self.search_limited(max, count);
+            }
+
+            self.state.backtrack_to(trail_len);
+        }
     }
 }
 

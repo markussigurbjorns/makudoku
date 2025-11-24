@@ -23,6 +23,8 @@ mod tests {
         eng.load_givens(p).unwrap();
         assert!(eng.search().unwrap());
         assert!(eng.solved());
+        assert!(eng.has_unique_solution());
+        assert_eq!(eng.count_solutions(10), 1);
     }
 
     #[test]
@@ -45,6 +47,7 @@ mod tests {
         eng.load_givens(p).unwrap();
         assert!(eng.search().unwrap());
         assert!(eng.solved());
+        assert!(eng.has_unique_solution());
     }
 
     #[test]
@@ -68,5 +71,6 @@ mod tests {
         eng.load_givens(p).unwrap();
         assert!(eng.search().unwrap());
         assert!(eng.solved());
+        assert!(eng.has_unique_solution());
     }
 }

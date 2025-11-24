@@ -1,5 +1,6 @@
 use crate::{CellIx, Contradiction, DIGITS_MASK, Domain, State};
 
+#[derive(Clone)]
 pub enum Constraint {
     AllDifferent { cells: [CellIx; 9] },
     KropkiWhite { a: CellIx, b: CellIx },
