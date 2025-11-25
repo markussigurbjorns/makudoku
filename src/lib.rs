@@ -2,11 +2,13 @@
 mod constraints;
 mod engine;
 mod generator;
+mod render;
 mod state;
 mod types;
 
 pub use constraints::Constraint;
 pub use engine::{Engine, add_all_sudoku_constraints, add_kropki_black, add_kropki_white};
+pub use generator::{generate_full_solution, generate_puzzle};
 pub use state::State;
 pub use types::{
     CellIx, Contradiction, DIGITS_MASK, Domain, EVEN_MASK, N, NN, Solve, bit_of_digit, box_of,

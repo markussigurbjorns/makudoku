@@ -88,7 +88,7 @@ pub fn generate_puzzle(target_clues: usize) -> String {
     puzzle_vec_to_string(&puzzle)
 }
 
-fn solution_to_string(sol: &[u8; NN]) -> String {
+fn _solution_to_string(sol: &[u8; NN]) -> String {
     let mut s = String::with_capacity(NN);
     for &d in sol.iter() {
         s.push((b'0' + d) as char);
