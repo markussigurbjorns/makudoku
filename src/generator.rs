@@ -42,11 +42,20 @@ fn shuffle<T>(rng: &mut SimpleRng, slice: &mut [T]) {
     }
 }
 
+pub fn generate_full_solution() -> [u8; NN] {
+    generate_full_solution_with(|_| {})
+}
+
 // TODO: this generates allways the same
 // make this more random
-pub fn generate_full_solution() -> [u8; NN] {
+pub fn generate_full_solution_with<F>(extra: F) -> [u8; NN]
+where
+    F: FnOnce(&mut Engine),
+{
     let mut eng = Engine::new();
     add_all_sudoku_constraints(&mut eng);
+    extra(&mut eng);
+
     eng.search().expect("search failed");
     assert!(eng.solved());
 
@@ -58,12 +67,19 @@ pub fn generate_full_solution() -> [u8; NN] {
     out
 }
 
-// TODO: make seeded generations
 pub fn generate_puzzle(target_clues: usize) -> String {
+    generate_puzzle_with(target_clues, |_| {})
+}
+
+// TODO: make seeded generations
+pub fn generate_puzzle_with<F>(target_clues: usize, extra: F) -> String
+where
+    F: Fn(&mut Engine) + Copy,
+{
     assert!(target_clues < NN);
 
     // make a complete solution
-    let sol = generate_full_solution();
+    let sol = generate_full_solution_with(extra);
     let mut puzzle: Vec<Option<u8>> = sol.iter().copied().map(Some).collect();
 
     // random order of position try to remove
@@ -77,7 +93,7 @@ pub fn generate_puzzle(target_clues: usize) -> String {
         puzzle[pos] = None;
 
         let puzzle_str = puzzle_vec_to_string(&puzzle);
-        if !has_unique_solution_from_string(&puzzle_str) {
+        if !has_unique_solution_from_string_with(&puzzle_str, extra) {
             puzzle[pos] = saved;
         }
         let clues_now = puzzle.iter().filter(|c| c.is_some()).count();
@@ -107,9 +123,13 @@ fn puzzle_vec_to_string(puzzle: &[Option<u8>]) -> String {
     s
 }
 
-fn has_unique_solution_from_string(puzzle: &str) -> bool {
+fn has_unique_solution_from_string_with<F>(puzzle: &str, extra: F) -> bool
+where
+    F: Fn(&mut Engine),
+{
     let mut eng = Engine::new();
     add_all_sudoku_constraints(&mut eng);
+    extra(&mut eng);
 
     if eng.load_givens(puzzle).is_err() {
         return false;
@@ -120,11 +140,33 @@ fn has_unique_solution_from_string(puzzle: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use crate::{add_kropki_black, add_kropki_white, add_thermo};
+
     use super::*;
 
     #[test]
     fn test() {
-        let puzzle = generate_puzzle(20);
-        println!("{}", puzzle);
+        // TODO: MAKE PROPER TESTS
+        let white_dots = vec![((0, 0), (0, 1)), ((1, 1), (1, 2))];
+        let black_dots = vec![((0, 2), (1, 2))];
+        let thermos = vec![
+            vec![(0, 0), (1, 0), (2, 0)],
+            vec![(4, 4), (4, 5), (4, 6), (4, 7)],
+        ];
+
+        let extra = |e: &mut Engine| {
+            for &((r1, c1), (r2, c2)) in &white_dots {
+                add_kropki_white(e, (r1, c1), (r2, c2));
+            }
+            for &((r1, c1), (r2, c2)) in &black_dots {
+                add_kropki_black(e, (r1, c1), (r2, c2));
+            }
+            for thermo_cells in &thermos {
+                add_thermo(e, thermo_cells);
+            }
+        };
+
+        let puzzle = generate_puzzle_with(30, extra);
+        println!("Kropki+Thermo puzzle:\n{}", puzzle);
     }
 }
