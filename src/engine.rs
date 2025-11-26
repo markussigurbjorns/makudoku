@@ -311,6 +311,11 @@ pub fn add_kropki_black(e: &mut Engine, a_rc: (usize, usize), b_rc: (usize, usiz
     e.add_constraint(Constraint::KropkiBlack { a, b });
 }
 
+pub fn add_thermo(e: &mut Engine, cells_rc: &[(usize, usize)]) {
+    let cells: Vec<CellIx> = cells_rc.iter().map(|&(r, c)| idx(r, c)).collect();
+    e.add_constraint(Constraint::Thermo { cells });
+}
+
 #[cfg(test)]
 mod tests {
     use std::usize;

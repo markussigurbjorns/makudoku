@@ -29,9 +29,7 @@ impl Constraint {
             Constraint::AllDifferent { cells } => propagate_all_diff(state, cells),
             Constraint::KropkiWhite { a, b } => propagate_kropki_white(state, *a, *b),
             Constraint::KropkiBlack { a, b } => propagate_kropki_black(state, *a, *b),
-            _ => {
-                todo!()
-            }
+            Constraint::Thermo { cells } => propagate_thermo(state, cells),
         }
     }
 }
@@ -163,6 +161,94 @@ fn propagate_kropki_black(st: &mut State, a: CellIx, b: CellIx) -> Result<bool, 
     }
     if st.narrow(b, reach_from_a)? {
         changed = true;
+    }
+    Ok(changed)
+}
+
+fn propagate_thermo(st: &mut State, cells: &Vec<CellIx>) -> Result<bool, Contradiction> {
+    let len = cells.len();
+    if len == 0 {
+        return Ok(false);
+    }
+
+    let mut changed = false;
+
+    let mut lower = [1u8; 9];
+    let mut upper = [9u8; 9];
+
+    for (idx, &cell) in cells.iter().enumerate() {
+        let di = st.domains[cell as usize];
+        if di == 0 {
+            return Err(Contradiction);
+        }
+
+        let mut min_d = 10;
+        let mut max_d = 0;
+        for d in 1..=9 {
+            if di & (1u16 << d) != 0 {
+                if d < min_d {
+                    min_d = d;
+                }
+                if d > max_d {
+                    max_d = d;
+                }
+            }
+        }
+
+        if min_d == 10 {
+            // no digits allowed
+            return Err(Contradiction);
+        }
+        lower[idx] = lower[idx].max(min_d as u8);
+        upper[idx] = upper[idx].min(max_d as u8);
+    }
+
+    // position i must allow at least i+1,
+    // and leave space for remaining cells: <= 9 - (len-1-i)
+    for i in 0..len {
+        lower[i] = lower[i].max((i + 1) as u8);
+        upper[i] = upper[i].min((9 - (len - 1 - i)) as u8);
+    }
+
+    // forward pass
+    for i in 1..len {
+        if lower[i] < lower[i - 1] + 1 {
+            lower[i] = lower[i - 1] + 1;
+        }
+    }
+
+    // backward pass
+    for i in (0..len - 1).rev() {
+        if upper[i] > upper[i + 1] - 1 {
+            upper[i] = upper[i + 1] - 1;
+        }
+    }
+
+    // check consistency and narrow domain
+    for (idx, &cell) in cells.iter().enumerate() {
+        let lo = lower[idx];
+        let hi = upper[idx];
+
+        if lo > hi {
+            return Err(Contradiction);
+        }
+
+        let di = st.domains[cell as usize];
+        let mut mask: Domain = 0;
+        for d in lo..=hi {
+            let bit = 1u16 << d;
+            if di & bit != 0 {
+                mask |= bit;
+            }
+        }
+
+        if mask == 0 {
+            return Err(Contradiction);
+        }
+
+        if st.narrow(cell, mask)? {
+            changed = true;
+        }
     }
     Ok(changed)
 }
