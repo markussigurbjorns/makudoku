@@ -23,9 +23,9 @@ impl Engine {
 
     pub fn add_constraint(&mut self, c: Constraint) {
         let idx = self.constraints.len();
-        for i in c.scope() {
+        c.for_each_cell(|i| {
             self.watchers[i as usize].push(idx);
-        }
+        });
         self.constraints.push(c);
     }
 
@@ -48,11 +48,11 @@ impl Engine {
             if changed {
                 any = true;
                 // Re-enqueue neighbors: every cell in this constraint
-                for j in self.constraints[ci].scope() {
+                self.constraints[ci].for_each_cell(|j| {
                     for &c2 in &self.watchers[j as usize] {
                         self.state.queue.push_back(c2);
                     }
-                }
+                });
             }
         }
         if any {

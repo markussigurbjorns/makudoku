@@ -9,18 +9,26 @@ pub enum Constraint {
 }
 
 impl Constraint {
-    pub fn scope<'a>(&'a self) -> Box<dyn Iterator<Item = CellIx> + 'a> {
+    #[inline]
+    pub fn for_each_cell<F>(&self, mut f: F)
+    where
+        F: FnMut(CellIx),
+    {
         match self {
-            Constraint::AllDifferent { cells } => Box::new(cells.iter().copied()),
-            Constraint::KropkiWhite { a, b } => Box::new([*a, *b].into_iter()),
-            Constraint::KropkiBlack { a, b } => Box::new([*a, *b].into_iter()),
-            Constraint::Thermo { cells } => Box::new(cells.iter().copied()),
-            // ARROW
-            // KILLER
-            // CHESS - KNIGHT
-            // CHESS - KING
-            // WHISPER LINES
-            // USER DEFINED
+            Constraint::AllDifferent { cells } => {
+                for &c in cells {
+                    f(c);
+                }
+            }
+            Constraint::KropkiWhite { a, b } | Constraint::KropkiBlack { a, b } => {
+                f(*a);
+                f(*b);
+            }
+            Constraint::Thermo { cells } => {
+                for &c in cells {
+                    f(c);
+                }
+            }
         }
     }
 
