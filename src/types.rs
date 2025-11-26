@@ -14,6 +14,15 @@ pub enum Solve {
     Stalled,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Difficulty {
+    Trivial,
+    Easy,
+    Medium,
+    Hard,
+    Insane,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Contradiction;
 

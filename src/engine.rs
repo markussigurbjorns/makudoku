@@ -7,8 +7,8 @@ use crate::{
 pub struct Engine {
     pub state: State,
     pub constraints: Vec<Constraint>,
+    pub branches: u32,
     watchers: Vec<Vec<usize>>,
-    branches: u32,
 }
 
 impl Engine {

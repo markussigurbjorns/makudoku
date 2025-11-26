@@ -1,4 +1,5 @@
 #![allow(clippy::redundant_pub_crate)]
+mod analysis;
 mod constraints;
 mod engine;
 mod generator;
@@ -6,15 +7,18 @@ mod render;
 mod state;
 mod types;
 
+pub use analysis::{estimate_difficulty, estimate_difficulty_with};
 pub use constraints::Constraint;
 pub use engine::{
     Engine, add_all_sudoku_constraints, add_kropki_black, add_kropki_white, add_thermo,
 };
-pub use generator::{generate_full_solution, generate_puzzle};
+pub use generator::{
+    generate_full_solution, generate_full_solution_with, generate_puzzle, generate_puzzle_with,
+};
 pub use state::State;
 pub use types::{
-    CellIx, Contradiction, DIGITS_MASK, Domain, EVEN_MASK, N, NN, Solve, bit_of_digit, box_of,
-    col_of, digit_of_bit, row_of,
+    CellIx, Contradiction, DIGITS_MASK, Difficulty, Domain, EVEN_MASK, N, NN, Solve, bit_of_digit,
+    box_of, col_of, digit_of_bit, row_of,
 };
 
 #[cfg(test)]
@@ -56,6 +60,70 @@ mod tests {
         add_kropki_white(&mut eng, (1, 6), (1, 7));
         add_kropki_white(&mut eng, (5, 6), (5, 7));
         add_kropki_white(&mut eng, (1, 7), (2, 7));
+        use crate::{Difficulty, Engine, add_all_sudoku_constraints};
+
+        pub fn estimate_difficulty_with<F>(puzzle: &str, extra: F) -> Result<Difficulty, String>
+        where
+            F: Fn(&mut Engine) + Copy,
+        {
+            // 1) Build engine with variant constraints
+            let mut eng = Engine::new();
+            add_all_sudoku_constraints(&mut eng);
+            extra(&mut eng);
+            eng.load_givens(puzzle)?;
+
+            // 2) Pure propagation loop (no branching)
+            let mut logical_steps = 0usize;
+            loop {
+                let before = eng.state.domains;
+                match eng.propagate() {
+                    Err(_) => return Err("unsatisfiable".into()),
+                    Ok(crate::Solve::Progress) => {
+                        logical_steps += 1;
+                    }
+                    Ok(crate::Solve::Stalled) | Ok(crate::Solve::Solved) => {}
+                }
+
+                if eng.solved() {
+                    // solved by propagation only
+                    return Ok(if logical_steps <= 2 {
+                        Difficulty::Trivial
+                    } else {
+                        Difficulty::Easy
+                    });
+                }
+
+                if eng.state.domains == before {
+                    break; // no further logical progress
+                }
+            }
+
+            // 3) Need backtracking: measure branches
+            let mut eng2 = eng.clone();
+            eng2.branches = 0;
+
+            let ok = eng2.search().map_err(|_| "unsatisfiable".to_string())?;
+            if !ok || !eng2.solved() {
+                return Err("unsatisfiable".into());
+            }
+
+            let b = eng2.branches;
+
+            let diff = if b < 10 {
+                Difficulty::Medium
+            } else if b < 100 {
+                Difficulty::Hard
+            } else {
+                Difficulty::Insane
+            };
+
+            Ok(diff)
+        }
+
+        /// Classic difficulty (no extra variant constraints).
+        pub fn estimate_difficulty(puzzle: &str) -> Result<Difficulty, String> {
+            estimate_difficulty_with(puzzle, |_: &mut Engine| {})
+        }
         add_kropki_white(&mut eng, (5, 5), (5, 6));
         eng.load_givens(p).unwrap();
         assert!(eng.search().unwrap());
