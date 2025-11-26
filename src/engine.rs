@@ -312,8 +312,22 @@ pub fn add_kropki_black(e: &mut Engine, a_rc: (usize, usize), b_rc: (usize, usiz
 }
 
 pub fn add_thermo(e: &mut Engine, cells_rc: &[(usize, usize)]) {
-    let cells: Vec<CellIx> = cells_rc.iter().map(|&(r, c)| idx(r, c)).collect();
-    e.add_constraint(Constraint::Thermo { cells });
+    assert!(!cells_rc.is_empty(), "thermo must have at least 1 cell");
+    assert!(
+        cells_rc.len() <= 9,
+        "thermo longer than 9 cells is not supported"
+    );
+
+    let mut cells_arr = [0u8; 9];
+    for (i, &(r, c)) in cells_rc.iter().enumerate() {
+        cells_arr[i] = idx(r, c);
+    }
+    let len = cells_rc.len() as u8;
+
+    e.add_constraint(Constraint::Thermo {
+        cells: cells_arr,
+        len,
+    });
 }
 
 #[cfg(test)]

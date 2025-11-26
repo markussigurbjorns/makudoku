@@ -5,7 +5,7 @@ pub enum Constraint {
     AllDifferent { cells: [CellIx; 9] },
     KropkiWhite { a: CellIx, b: CellIx },
     KropkiBlack { a: CellIx, b: CellIx },
-    Thermo { cells: Vec<CellIx> },
+    Thermo { cells: [CellIx; 9], len: u8 },
 }
 
 impl Constraint {
@@ -24,9 +24,10 @@ impl Constraint {
                 f(*a);
                 f(*b);
             }
-            Constraint::Thermo { cells } => {
-                for &c in cells {
-                    f(c);
+            Constraint::Thermo { cells, len } => {
+                let len = *len as usize;
+                for i in 0..len {
+                    f(cells[i]);
                 }
             }
         }
@@ -37,7 +38,10 @@ impl Constraint {
             Constraint::AllDifferent { cells } => propagate_all_diff(state, cells),
             Constraint::KropkiWhite { a, b } => propagate_kropki_white(state, *a, *b),
             Constraint::KropkiBlack { a, b } => propagate_kropki_black(state, *a, *b),
-            Constraint::Thermo { cells } => propagate_thermo(state, cells),
+            Constraint::Thermo { cells, len } => {
+                let len = *len as usize;
+                propagate_thermo(state, &cells[..len])
+            }
         }
     }
 }
@@ -173,7 +177,7 @@ fn propagate_kropki_black(st: &mut State, a: CellIx, b: CellIx) -> Result<bool, 
     Ok(changed)
 }
 
-fn propagate_thermo(st: &mut State, cells: &Vec<CellIx>) -> Result<bool, Contradiction> {
+fn propagate_thermo(st: &mut State, cells: &[CellIx]) -> Result<bool, Contradiction> {
     let len = cells.len();
     if len == 0 {
         return Ok(false);
