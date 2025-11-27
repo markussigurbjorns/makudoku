@@ -1,4 +1,4 @@
-use crate::{Engine, NN, add_all_sudoku_constraints, types::digit_of_bit};
+use crate::{add_all_sudoku_constraints, types::digit_of_bit, Engine, NN};
 
 use std::{
     time::{SystemTime, UNIX_EPOCH},

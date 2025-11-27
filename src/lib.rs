@@ -10,15 +10,15 @@ mod types;
 pub use analysis::{estimate_difficulty, estimate_difficulty_with};
 pub use constraints::Constraint;
 pub use engine::{
-    Engine, add_all_sudoku_constraints, add_kropki_black, add_kropki_white, add_thermo,
+    add_all_sudoku_constraints, add_kropki_black, add_kropki_white, add_thermo, Engine,
 };
 pub use generator::{
     generate_full_solution, generate_full_solution_with, generate_puzzle, generate_puzzle_with,
 };
 pub use state::State;
 pub use types::{
-    CellIx, Contradiction, DIGITS_MASK, Difficulty, Domain, EVEN_MASK, N, NN, Solve, bit_of_digit,
-    box_of, col_of, digit_of_bit, row_of,
+    bit_of_digit, box_of, col_of, digit_of_bit, row_of, CellIx, Contradiction, Difficulty, Domain,
+    Solve, DIGITS_MASK, EVEN_MASK, N, NN,
 };
 
 #[cfg(test)]
@@ -42,6 +42,18 @@ mod tests {
         assert!(eng.solved());
         assert!(eng.has_unique_solution());
         assert_eq!(eng.count_solutions(10), 1);
+    }
+
+    #[test]
+    fn solve_classic_hard() {
+        let p = "12.3.....4.....3....3.5......42..5......8...9.6...5.7...15..2......9..6......7..8";
+        let mut eng = Engine::new();
+        add_all_sudoku_constraints(&mut eng);
+        eng.load_givens(p).unwrap();
+        assert!(eng.search().unwrap());
+        assert!(eng.solved());
+        assert!(eng.has_unique_solution());
+        println!("num branches are: {}", eng.branches);
     }
 
     #[test]
