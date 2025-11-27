@@ -36,15 +36,14 @@ where
     }
 
     // backtracking: measure branches
-    let mut eng2 = eng.clone();
-    eng2.branches = 0;
-
-    let ok = eng2.search().map_err(|_| "unsatisfiable".to_string())?;
-    if !ok || !eng2.solved() {
-        return Err("unsatisfiable".into());
-    }
-
-    let b = eng2.branches;
+    let b = eng.with_saved_state(|eng2| {
+        eng2.branches = 0;
+        let ok = eng2.search().map_err(|_| "unsatisfiable".to_string())?;
+        if !ok || !eng2.solved() {
+            return Err("unsatisfiable".to_string());
+        }
+        Ok(eng2.branches)
+    })?;
 
     let diff = if b < 10 {
         Difficulty::Medium

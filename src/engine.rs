@@ -1,5 +1,7 @@
+use std::collections::VecDeque;
+
 use crate::{
-    CellIx, Constraint, Contradiction, N, NN, Solve, State,
+    CellIx, Constraint, Contradiction, Domain, N, NN, Solve, State,
     types::{bit_of_digit, idx},
 };
 
@@ -19,6 +21,28 @@ impl Engine {
             watchers: vec![Vec::new(); NN],
             branches: 0,
         }
+    }
+    fn save_state(&self) -> ([Domain; NN], Vec<(CellIx, Domain)>, VecDeque<usize>, u32) {
+        (
+            self.state.domains,
+            self.state.trail.clone(),
+            self.state.queue.clone(),
+            self.branches,
+        )
+    }
+
+    fn restore_state(&mut self, snap: ([Domain; NN], Vec<(CellIx, Domain)>, VecDeque<usize>, u32)) {
+        self.state.domains = snap.0;
+        self.state.trail = snap.1;
+        self.state.queue = snap.2;
+        self.branches = snap.3;
+    }
+
+    pub fn with_saved_state<T>(&mut self, f: impl FnOnce(&mut Engine) -> T) -> T {
+        let snap = self.save_state();
+        let out = f(self);
+        self.restore_state(snap);
+        out
     }
 
     pub fn add_constraint(&mut self, c: Constraint) {

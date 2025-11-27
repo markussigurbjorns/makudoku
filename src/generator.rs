@@ -1,19 +1,24 @@
-use crate::{add_all_sudoku_constraints, types::digit_of_bit, Engine, NN};
+use crate::{Engine, NN, add_all_sudoku_constraints, types::digit_of_bit};
 
 use std::{
     time::{SystemTime, UNIX_EPOCH},
     usize,
 };
 
-struct SimpleRng(u64);
+#[derive(Clone)]
+pub struct SimpleRng(u64);
 
 impl SimpleRng {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
         Self(nanos as u64)
+    }
+
+    pub fn from_seed(seed: u64) -> Self {
+        Self(seed)
     }
 
     fn next_u32(&mut self) -> u32 {
@@ -42,13 +47,11 @@ fn shuffle<T>(rng: &mut SimpleRng, slice: &mut [T]) {
     }
 }
 
-pub fn generate_full_solution() -> [u8; NN] {
-    generate_full_solution_with(|_| {})
+pub fn generate_full_solution(rng: SimpleRng) -> [u8; NN] {
+    generate_full_solution_with(rng, |_| {})
 }
 
-// TODO: this generates allways the same
-// make this more random
-pub fn generate_full_solution_with<F>(extra: F) -> [u8; NN]
+pub fn generate_full_solution_with<F>(mut rng: SimpleRng, extra: F) -> [u8; NN]
 where
     F: FnOnce(&mut Engine),
 {
@@ -60,31 +63,42 @@ where
     assert!(eng.solved());
 
     let mut out = [0u8; NN];
+
     for i in 0..NN {
         let dom = eng.state.domains[i];
         out[i] = digit_of_bit(dom).unwrap();
     }
+
+    let mut digits = [1u8, 2, 3, 4, 5, 6, 7, 8, 9];
+    shuffle(&mut rng, &mut digits);
+
+    let mut perm = [0u8; 10];
+    for (i, d) in digits.iter().enumerate() {
+        perm[i + 1] = *d;
+    }
+    for cell in out.iter_mut() {
+        *cell = perm[*cell as usize];
+    }
+
     out
 }
 
-pub fn generate_puzzle(target_clues: usize) -> String {
-    generate_puzzle_with(target_clues, |_| {})
+pub fn generate_puzzle(target_clues: usize, rng: SimpleRng) -> String {
+    generate_puzzle_with(target_clues, rng, |_| {})
 }
 
-// TODO: make seeded generations
-pub fn generate_puzzle_with<F>(target_clues: usize, extra: F) -> String
+pub fn generate_puzzle_with<F>(target_clues: usize, mut rng: SimpleRng, extra: F) -> String
 where
     F: Fn(&mut Engine) + Copy,
 {
     assert!(target_clues < NN);
 
     // make a complete solution
-    let sol = generate_full_solution_with(extra);
+    let sol = generate_full_solution_with(rng.clone(), extra);
     let mut puzzle: Vec<Option<u8>> = sol.iter().copied().map(Some).collect();
 
     // random order of position try to remove
     let mut positions: Vec<usize> = (0..NN).collect();
-    let mut rng = SimpleRng::new();
     shuffle(&mut rng, &mut positions);
 
     // try to remove clues while preserving uniqueness
@@ -166,7 +180,20 @@ mod tests {
             }
         };
 
-        let puzzle = generate_puzzle_with(30, extra);
-        println!("Kropki+Thermo puzzle:\n{}", puzzle);
+        let rng = SimpleRng::from_seed(12342134);
+        let puzzle = generate_puzzle_with(30, rng, extra);
+    }
+
+    #[test]
+    fn test_generate_puzzle_with_seed() {
+        let rng = SimpleRng::from_seed(12134);
+        let puzzle = generate_puzzle_with(80, rng, |_| {});
+        let mut eng = Engine::new();
+        add_all_sudoku_constraints(&mut eng);
+        eng.load_givens(&puzzle).unwrap();
+        assert!(eng.search().unwrap());
+        assert!(eng.solved());
+        assert!(eng.has_unique_solution());
+        println!("puzzle:\n{}", puzzle);
     }
 }
