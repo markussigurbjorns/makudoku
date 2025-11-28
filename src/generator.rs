@@ -1,4 +1,4 @@
-use crate::{Engine, NN, add_all_sudoku_constraints, types::digit_of_bit};
+use crate::{add_all_sudoku_constraints, types::digit_of_bit, Engine, NN};
 
 use std::{
     time::{SystemTime, UNIX_EPOCH},
@@ -69,17 +69,18 @@ where
         out[i] = digit_of_bit(dom).unwrap();
     }
 
-    let mut digits = [1u8, 2, 3, 4, 5, 6, 7, 8, 9];
-    shuffle(&mut rng, &mut digits);
+    if eng.constraints.is_empty() {
+        let mut digits = [1u8, 2, 3, 4, 5, 6, 7, 8, 9];
+        shuffle(&mut rng, &mut digits);
 
-    let mut perm = [0u8; 10];
-    for (i, d) in digits.iter().enumerate() {
-        perm[i + 1] = *d;
+        let mut perm = [0u8; 10];
+        for (i, d) in digits.iter().enumerate() {
+            perm[i + 1] = *d;
+        }
+        for cell in out.iter_mut() {
+            *cell = perm[*cell as usize];
+        }
     }
-    for cell in out.iter_mut() {
-        *cell = perm[*cell as usize];
-    }
-
     out
 }
 
