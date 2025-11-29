@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{fmt::Write, usize};
 
 use crate::{Constraint, NN, col_of, row_of};
 
@@ -21,6 +21,7 @@ pub struct RenderOptions<'a> {
     pub thermo_bulb_radius: f32,
     pub thermo_line_w: f32,
     pub thermo_corner_radius: f32,
+    pub arrow_circle_radius: f32,
 }
 
 impl<'a> Default for RenderOptions<'a> {
@@ -36,6 +37,7 @@ impl<'a> Default for RenderOptions<'a> {
             thermo_bulb_radius: 15.0,
             thermo_line_w: 9.0,
             thermo_corner_radius: 5.0,
+            arrow_circle_radius: 15.0,
         }
     }
 }
@@ -132,8 +134,7 @@ fn draw_grid(layout: &Layout, opts: &RenderOptions, svg: &mut SvgDoc) {
 
         writeln!(
             svg.buf,
-            r#"<line x1="{x}" y1="{pad}" x2="{x}" y2="{ymax}"
-                 stroke="black" stroke-width="{w}" />"#,
+            r#"<line x1="{x}" y1="{pad}" x2="{x}" y2="{ymax}" stroke="black" stroke-width="{w}" />"#,
             x = pos,
             pad = layout.pad,
             ymax = layout.height() - layout.pad,
@@ -143,8 +144,7 @@ fn draw_grid(layout: &Layout, opts: &RenderOptions, svg: &mut SvgDoc) {
 
         writeln!(
             svg.buf,
-            r#"<line x1="{pad}" y1="{y}" x2="{xmax}" y2="{y}"
-                 stroke="black" stroke-width="{w}" />"#,
+            r#"<line x1="{pad}" y1="{y}" x2="{xmax}" y2="{y}" stroke="black" stroke-width="{w}" />"#,
             pad = layout.pad,
             xmax = layout.width() - layout.pad,
             y = pos,
@@ -157,8 +157,7 @@ fn draw_grid(layout: &Layout, opts: &RenderOptions, svg: &mut SvgDoc) {
 
         writeln!(
             svg.buf,
-            r#"<line x1="{x}" y1="{pad}" x2="{x}" y2="{ymax}"
-                 stroke="black" stroke-width="{w}" />"#,
+            r#"<line x1="{x}" y1="{pad}" x2="{x}" y2="{ymax}" stroke="black" stroke-width="{w}" />"#,
             x = pos,
             pad = layout.pad,
             ymax = layout.height() - layout.pad,
@@ -168,8 +167,7 @@ fn draw_grid(layout: &Layout, opts: &RenderOptions, svg: &mut SvgDoc) {
 
         writeln!(
             svg.buf,
-            r#"<line x1="{pad}" y1="{y}" x2="{xmax}" y2="{y}"
-                 stroke="black" stroke-width="{w}" />"#,
+            r#"<line x1="{pad}" y1="{y}" x2="{xmax}" y2="{y}" stroke="black" stroke-width="{w}" />"#,
             pad = layout.pad,
             xmax = layout.width() - layout.pad,
             y = pos,
@@ -185,10 +183,7 @@ fn draw_grid(layout: &Layout, opts: &RenderOptions, svg: &mut SvgDoc) {
 
     writeln!(
         svg.buf,
-        r#"<rect x="{x}" y="{y}" width="{w}" height="{h}"
-             fill="none"
-             stroke="black"
-             stroke-width="{sw}" />"#,
+        r#"<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="none" stroke="black" stroke-width="{sw}" />"#,
         sw = opts.stroke_bold,
     )
     .unwrap();
@@ -231,6 +226,7 @@ fn draw_constraints(
             Constraint::KropkiWhite { a, b } => draw_kropki(layout, opts, *a, *b, false, svg),
             Constraint::KropkiBlack { a, b } => draw_kropki(layout, opts, *a, *b, true, svg),
             Constraint::Thermo { cells, len } => draw_thermo(layout, opts, cells, *len, svg)?,
+            Constraint::Arrow { cells, len } => draw_arrow(layout, opts, cells, *len, svg)?,
         }
     }
     Ok(())
@@ -241,6 +237,7 @@ fn constraint_layer(c: &Constraint) -> Layer {
         Constraint::AllDifferent { .. } => Layer::UnderGrid,
         Constraint::Thermo { .. } => Layer::UnderGrid,
         Constraint::KropkiWhite { .. } | Constraint::KropkiBlack { .. } => Layer::OverDigits,
+        Constraint::Arrow { .. } => Layer::UnderGrid,
     }
 }
 
@@ -280,10 +277,7 @@ fn draw_thermo(
     let (x0, y0) = layout.cell_center(r0, c0);
     writeln!(
         svg.buf,
-        r#"<circle cx="{x}" cy="{y}" r="{r}"
-            fill="gainsboro"
-            stroke="gainsboro"
-            stroke-width="{w}" />"#,
+        r#"<circle cx="{x}" cy="{y}" r="{r}" fill="gainsboro" stroke="gainsboro" stroke-width="{w}" />"#,
         x = x0,
         y = y0,
         r = opts.thermo_bulb_radius,
@@ -301,16 +295,124 @@ fn draw_thermo(
 
     writeln!(
         svg.buf,
-        r#"<path d="{d}"
-            fill="none"
-            stroke="gainsboro"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="{w}" />"#,
+        r#"<path d="{d}" fill="none" stroke="gainsboro" stroke-linecap="round" stroke-linejoin="round" stroke-width="{w}" />"#,
         d = d,
         w = opts.thermo_line_w
     )
     .unwrap();
+
+    Ok(())
+}
+
+fn draw_arrow(
+    layout: &Layout,
+    opts: &RenderOptions,
+    cells: &[u8; 9],
+    len: u8,
+    svg: &mut SvgDoc,
+) -> Result<(), String> {
+    if len == 0 {
+        return Ok(());
+    }
+    let len = len as usize;
+    let (r0, c0) = (row_of(cells[0]), col_of(cells[0]));
+    let (x0, y0) = layout.cell_center(r0, c0);
+    writeln!(
+        svg.buf,
+        r#"<circle cx="{x}" cy="{y}" r="{r}" fill="none" stroke="gray" stroke-width="{w}" />"#,
+        x = x0,
+        y = y0,
+        r = opts.arrow_circle_radius,
+        w = opts.stroke_bold
+    )
+    .unwrap();
+
+    if len < 2 {
+        return Ok(());
+    }
+
+    let mut points = Vec::with_capacity(len);
+    for &cell in cells.iter().take(len) {
+        let (r, c) = (row_of(cell), col_of(cell));
+        points.push(layout.cell_center(r, c));
+    }
+
+    let start = points[0];
+    let first = points[1];
+    let dir = (first.0 - start.0, first.1 - start.1);
+    let dir_len = (dir.0 * dir.0 + dir.1 * dir.1).sqrt();
+    let mut path_points = Vec::with_capacity(points.len());
+    if dir_len > 1e-3 {
+        let scale = opts.arrow_circle_radius / dir_len;
+        let start_on_circle = (start.0 + dir.0 * scale, start.1 + dir.1 * scale);
+        path_points.push(start_on_circle);
+    } else {
+        path_points.push(start);
+    }
+    path_points.extend_from_slice(&points[1..]);
+
+    let mut d = String::new();
+    let (sx, sy) = path_points[0];
+    d.push_str(&format!("M {sx} {sy}"));
+
+    for &(x, y) in &path_points[1..] {
+        d.push_str(&format!(" L {x} {y}"));
+    }
+
+    writeln!(
+        svg.buf,
+        r#"<path d="{d}" fill="none" stroke="gray" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round" />"#,
+        d = d,
+        w = opts.stroke_bold,
+    )
+    .unwrap();
+
+    if path_points.len() >= 2 {
+        let tip = *path_points.last().unwrap();
+        let prev = path_points[path_points.len() - 2];
+        let dir = (tip.0 - prev.0, tip.1 - prev.1);
+        let dir_len = (dir.0 * dir.0 + dir.1 * dir.1).sqrt();
+        if dir_len > 1e-3 {
+            let ux = dir.0 / dir_len;
+            let uy = dir.1 / dir_len;
+
+            let angle = std::f32::consts::FRAC_PI_4;
+            let sin = angle.sin();
+            let cos = angle.cos();
+
+            let head_len = layout.cell * 0.2;
+
+            let left = (
+                tip.0 - (ux * cos - uy * sin) * head_len,
+                tip.1 - (ux * sin + uy * cos) * head_len,
+            );
+            let right = (
+                tip.0 - (ux * cos + uy * sin) * head_len,
+                tip.1 - (-ux * sin + uy * cos) * head_len,
+            );
+
+            writeln!(
+                svg.buf,
+                r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="gray" stroke-width="{w}" stroke-linecap="round" />"#,
+                x1 = tip.0,
+                y1 = tip.1,
+                x2 = left.0,
+                y2 = left.1,
+                w = opts.stroke_bold
+            )
+            .unwrap();
+            writeln!(
+                svg.buf,
+                r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="gray" stroke-width="{w}" stroke-linecap="round" />"#,
+                x1 = tip.0,
+                y1 = tip.1,
+                x2 = right.0,
+                y2 = right.1,
+                w = opts.stroke_bold
+            )
+            .unwrap();
+        }
+    }
 
     Ok(())
 }

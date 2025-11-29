@@ -10,17 +10,17 @@ mod types;
 pub use analysis::{estimate_difficulty, estimate_difficulty_with};
 pub use constraints::Constraint;
 pub use engine::{
-    add_all_sudoku_constraints, add_kropki_black, add_kropki_white, add_thermo, Engine,
+    Engine, add_all_sudoku_constraints, add_arrow, add_kropki_black, add_kropki_white, add_thermo,
 };
 pub use generator::{
-    generate_full_solution, generate_full_solution_with, generate_puzzle, generate_puzzle_with,
-    SimpleRng,
+    SimpleRng, generate_full_solution, generate_full_solution_with, generate_puzzle,
+    generate_puzzle_with,
 };
-pub use render::{render_puzzle_svg, Layer, RenderOptions};
+pub use render::{Layer, RenderOptions, render_puzzle_svg};
 pub use state::State;
 pub use types::{
-    bit_of_digit, box_of, col_of, digit_of_bit, row_of, CellIx, Contradiction, Difficulty, Domain,
-    Solve, DIGITS_MASK, EVEN_MASK, N, NN,
+    CellIx, Contradiction, DIGITS_MASK, Difficulty, Domain, EVEN_MASK, N, NN, Solve, bit_of_digit,
+    box_of, col_of, digit_of_bit, row_of,
 };
 
 #[cfg(test)]
@@ -122,5 +122,27 @@ mod tests {
         assert!(eng.search().unwrap());
         assert!(eng.solved());
         assert!(eng.has_unique_solution());
+    }
+
+    // switch out for a more easire puzzle
+    // takes way too much time
+    // also make faster
+    #[test]
+    fn solve_arrow() {
+        let p = "..........8......................................................................";
+        let mut eng = Engine::new();
+        add_all_sudoku_constraints(&mut eng);
+        add_arrow(&mut eng, &[(0, 2), (1, 2), (2, 2), (3, 3)]);
+        add_arrow(&mut eng, &[(0, 8), (1, 7), (0, 6), (1, 5)]);
+        add_arrow(&mut eng, &[(3, 2), (4, 2), (5, 2), (6, 3)]);
+        add_arrow(&mut eng, &[(3, 5), (4, 4), (4, 3)]);
+        add_arrow(&mut eng, &[(6, 2), (6, 1), (6, 0)]);
+        add_arrow(&mut eng, &[(6, 2), (7, 2), (8, 2)]);
+        add_arrow(&mut eng, &[(6, 5), (5, 4), (5, 3)]);
+        add_arrow(&mut eng, &[(6, 8), (5, 7), (4, 8), (3, 7), (2, 6)]);
+        eng.load_givens(p).unwrap();
+        assert!(eng.search().unwrap());
+        assert!(eng.solved());
+        //assert!(eng.has_unique_solution());
     }
 }

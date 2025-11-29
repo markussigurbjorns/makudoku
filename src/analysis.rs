@@ -2,7 +2,7 @@ use crate::{Difficulty, Engine, add_all_sudoku_constraints};
 
 pub fn estimate_difficulty_with<F>(puzzle: &str, extra: F) -> Result<Difficulty, String>
 where
-    F: Fn(&mut Engine) + Copy,
+    F: FnOnce(&mut Engine) + Clone,
 {
     let mut eng = Engine::new();
     add_all_sudoku_constraints(&mut eng);

@@ -354,6 +354,19 @@ pub fn add_thermo(e: &mut Engine, cells_rc: &[(usize, usize)]) {
     });
 }
 
+pub fn add_arrow(e: &mut Engine, cells_rc: &[(usize, usize)]) {
+    let mut cells_arr = [0u8; 9];
+    for (i, &(r, c)) in cells_rc.iter().enumerate() {
+        cells_arr[i] = idx(r, c);
+    }
+    let len = cells_rc.len() as u8;
+
+    e.add_constraint(Constraint::Arrow {
+        cells: cells_arr,
+        len,
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use std::usize;

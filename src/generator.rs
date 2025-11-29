@@ -1,4 +1,4 @@
-use crate::{add_all_sudoku_constraints, types::digit_of_bit, Engine, NN};
+use crate::{Engine, NN, add_all_sudoku_constraints, types::digit_of_bit};
 
 use std::{
     time::{SystemTime, UNIX_EPOCH},
@@ -155,46 +155,68 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::{add_kropki_black, add_kropki_white, add_thermo};
+    use crate::{
+        Engine, add_all_sudoku_constraints, add_kropki_black, add_kropki_white, add_thermo,
+    };
 
     use super::*;
 
-    #[test]
-    fn test() {
-        // TODO: MAKE PROPER TESTS
-        let white_dots = vec![((0, 0), (0, 1)), ((1, 1), (1, 2))];
-        let black_dots = vec![((0, 2), (1, 2))];
-        let thermos = vec![
-            vec![(0, 0), (1, 0), (2, 0)],
-            vec![(4, 4), (4, 5), (4, 6), (4, 7)],
-        ];
-
-        let extra = |e: &mut Engine| {
-            for &((r1, c1), (r2, c2)) in &white_dots {
-                add_kropki_white(e, (r1, c1), (r2, c2));
-            }
-            for &((r1, c1), (r2, c2)) in &black_dots {
-                add_kropki_black(e, (r1, c1), (r2, c2));
-            }
-            for thermo_cells in &thermos {
-                add_thermo(e, thermo_cells);
-            }
-        };
-
-        let rng = SimpleRng::from_seed(12342134);
-        let puzzle = generate_puzzle_with(30, rng, extra);
+    fn clue_count(puzzle: &str) -> usize {
+        puzzle.chars().filter(|ch| matches!(ch, '1'..='9')).count()
     }
 
     #[test]
     fn test_generate_puzzle_with_seed() {
         let rng = SimpleRng::from_seed(12134);
         let puzzle = generate_puzzle_with(80, rng, |_| {});
+        assert_eq!(clue_count(&puzzle), 80);
         let mut eng = Engine::new();
         add_all_sudoku_constraints(&mut eng);
         eng.load_givens(&puzzle).unwrap();
         assert!(eng.search().unwrap());
         assert!(eng.solved());
         assert!(eng.has_unique_solution());
-        println!("puzzle:\n{}", puzzle);
+    }
+
+    #[test]
+    fn generate_full_solution_with_seed_is_valid_grid() {
+        let rng = SimpleRng::from_seed(424242);
+        let sol = generate_full_solution(rng);
+        let puzzle = _solution_to_string(&sol);
+
+        let mut eng = Engine::new();
+        add_all_sudoku_constraints(&mut eng);
+        eng.load_givens(&puzzle).unwrap();
+        assert!(eng.search().unwrap());
+        assert!(eng.solved());
+        assert!(eng.has_unique_solution());
+    }
+
+    #[test]
+    fn generate_puzzle_with_extra_constraints_stays_unique() {
+        let extra = |e: &mut Engine| {
+            add_kropki_white(e, (0, 0), (0, 1));
+            add_kropki_black(e, (1, 0), (1, 1));
+            add_thermo(e, &[(2, 2), (2, 3), (2, 4), (3, 4)]);
+        };
+
+        let rng = SimpleRng::from_seed(20240601);
+        let target_clues = 35;
+        let puzzle = generate_puzzle_with(target_clues, rng, extra);
+        let clues = clue_count(&puzzle);
+        assert!(
+            clues >= target_clues,
+            "expected at least {} clues, got {}",
+            target_clues,
+            clues
+        );
+
+        let mut eng = Engine::new();
+        add_all_sudoku_constraints(&mut eng);
+        extra(&mut eng);
+        eng.load_givens(&puzzle).unwrap();
+        assert!(eng.search().unwrap());
+        assert!(eng.solved());
+        assert!(eng.has_unique_solution());
     }
 }

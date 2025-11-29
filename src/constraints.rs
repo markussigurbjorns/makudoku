@@ -1,3 +1,5 @@
+use std::usize;
+
 use crate::{CellIx, Contradiction, DIGITS_MASK, Domain, State};
 
 #[derive(Clone)]
@@ -6,6 +8,7 @@ pub enum Constraint {
     KropkiWhite { a: CellIx, b: CellIx },
     KropkiBlack { a: CellIx, b: CellIx },
     Thermo { cells: [CellIx; 9], len: u8 },
+    Arrow { cells: [CellIx; 9], len: u8 },
 }
 
 impl Constraint {
@@ -24,7 +27,7 @@ impl Constraint {
                 f(*a);
                 f(*b);
             }
-            Constraint::Thermo { cells, len } => {
+            Constraint::Thermo { cells, len } | Constraint::Arrow { cells, len } => {
                 let len = *len as usize;
                 for i in 0..len {
                     f(cells[i]);
@@ -41,6 +44,10 @@ impl Constraint {
             Constraint::Thermo { cells, len } => {
                 let len = *len as usize;
                 propagate_thermo(state, &cells[..len])
+            }
+            Constraint::Arrow { cells, len } => {
+                let len = *len as usize;
+                propagate_arrow(state, &cells[..len])
             }
         }
     }
@@ -262,6 +269,156 @@ fn propagate_thermo(st: &mut State, cells: &[CellIx]) -> Result<bool, Contradict
             changed = true;
         }
     }
+    Ok(changed)
+}
+
+fn propagate_arrow(st: &mut State, cells: &[CellIx]) -> Result<bool, Contradiction> {
+    let len = cells.len();
+    if len < 2 {
+        return Ok(false);
+    }
+
+    let circle = cells[0];
+    let arrow_cells = &cells[1..];
+
+    let circle_dom = st.domains[circle as usize];
+    if circle_dom == 0 {
+        return Err(Contradiction);
+    }
+
+    const SUM_LIMIT: usize = 9;
+
+    let mut prefix_sums = [0u16; 9];
+    prefix_sums[0] = 1;
+
+    for (i, &cell) in arrow_cells.iter().enumerate() {
+        let dom = st.domains[cell as usize];
+        if dom == 0 {
+            return Err(Contradiction);
+        }
+
+        let mut next: u16 = 0;
+        for sum in 0..=SUM_LIMIT {
+            if prefix_sums[i] & (1 << sum) == 0 {
+                continue;
+            }
+            let mut m = dom;
+            while m != 0 {
+                let d = m.trailing_zeros() as usize;
+                m &= !(1u16 << d);
+                let new_sum = sum + d;
+                if new_sum <= SUM_LIMIT {
+                    next |= 1 << new_sum;
+                }
+            }
+        }
+        prefix_sums[i + 1] = next;
+    }
+
+    let total_sums = prefix_sums[arrow_cells.len()];
+    if total_sums & 0b11_1111_1110 == 0 {
+        return Err(Contradiction);
+    }
+
+    let mut changed = false;
+
+    let mut circle_mask: Domain = 0;
+    for d in 1..=9 {
+        if (total_sums & (1 << d)) != 0 && (circle_dom & (1u16 << d)) != 0 {
+            circle_mask |= 1u16 << d;
+        }
+    }
+
+    if circle_mask == 0 {
+        return Err(Contradiction);
+    }
+
+    if st.narrow(circle, circle_mask)? {
+        changed = true;
+    }
+
+    let circle_dom = st.domains[circle as usize];
+
+    let mut suffix_sums = [0u16; 9];
+    suffix_sums[arrow_cells.len()] = 1;
+    for (idx, &cell) in arrow_cells.iter().enumerate().rev() {
+        let dom = st.domains[cell as usize];
+        if dom == 0 {
+            return Err(Contradiction);
+        }
+
+        let mut prev: u16 = 0;
+        let suf_idx = idx + 1;
+        for sum in 0..=SUM_LIMIT {
+            if suffix_sums[suf_idx] & (1 << sum) == 0 {
+                continue;
+            }
+            let mut m = dom;
+            while m != 0 {
+                let d = m.trailing_zeros() as usize;
+                m &= !(1u16 << d);
+                let new_sum = sum + d;
+                if new_sum <= SUM_LIMIT {
+                    prev |= 1 << new_sum;
+                }
+            }
+        }
+        suffix_sums[idx] = prev;
+    }
+
+    for (j, &cell) in arrow_cells.iter().enumerate() {
+        let dom = st.domains[cell as usize];
+        if dom == 0 {
+            return Err(Contradiction);
+        }
+
+        let mut others_sums: u16 = 0;
+        for a in 0..=SUM_LIMIT {
+            if prefix_sums[j] & (1 << a) == 0 {
+                continue;
+            }
+            for b in 0..=SUM_LIMIT {
+                if suffix_sums[j + 1] & (1 << b) == 0 {
+                    continue;
+                }
+                let sum = a + b;
+                if sum <= SUM_LIMIT {
+                    others_sums |= 1 << sum;
+                }
+            }
+        }
+
+        let mut new_mask: Domain = 0;
+        let mut m = dom;
+        while m != 0 {
+            let d = m.trailing_zeros() as u8;
+            m &= !(1u16 << d);
+
+            let mut cm = circle_dom;
+            let mut ok = false;
+            while cm != 0 {
+                let c = cm.trailing_zeros() as usize;
+                cm &= !(1u16 << c);
+                if c >= d as usize && (others_sums & (1 << (c - d as usize))) != 0 {
+                    ok = true;
+                    break;
+                }
+            }
+
+            if ok {
+                new_mask |= 1u16 << d;
+            }
+        }
+
+        if new_mask == 0 {
+            return Err(Contradiction);
+        }
+
+        if st.narrow(cell, new_mask)? {
+            changed = true;
+        }
+    }
+
     Ok(changed)
 }
 
