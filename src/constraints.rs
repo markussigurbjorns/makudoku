@@ -1,5 +1,3 @@
-use std::usize;
-
 use crate::{CellIx, Contradiction, DIGITS_MASK, Domain, State};
 
 #[derive(Clone)]
@@ -9,6 +7,9 @@ pub enum Constraint {
     KropkiBlack { a: CellIx, b: CellIx },
     Thermo { cells: [CellIx; 9], len: u8 },
     Arrow { cells: [CellIx; 9], len: u8 },
+    King { a: CellIx, b: CellIx },
+    Knight { a: CellIx, b: CellIx },
+    Queen { a: CellIx, b: CellIx },
 }
 
 impl Constraint {
@@ -23,7 +24,11 @@ impl Constraint {
                     f(c);
                 }
             }
-            Constraint::KropkiWhite { a, b } | Constraint::KropkiBlack { a, b } => {
+            Constraint::KropkiWhite { a, b }
+            | Constraint::KropkiBlack { a, b }
+            | Constraint::King { a, b }
+            | Constraint::Queen { a, b }
+            | Constraint::Knight { a, b } => {
                 f(*a);
                 f(*b);
             }
@@ -49,6 +54,10 @@ impl Constraint {
                 let len = *len as usize;
                 propagate_arrow(state, &cells[..len])
             }
+
+            Constraint::King { a, b }
+            | Constraint::Knight { a, b }
+            | Constraint::Queen { a, b } => propagate_not_equal(state, *a, *b),
         }
     }
 }
@@ -415,6 +424,45 @@ fn propagate_arrow(st: &mut State, cells: &[CellIx]) -> Result<bool, Contradicti
         }
 
         if st.narrow(cell, new_mask)? {
+            changed = true;
+        }
+    }
+
+    Ok(changed)
+}
+
+fn propagate_not_equal(st: &mut State, a: CellIx, b: CellIx) -> Result<bool, Contradiction> {
+    let da = st.domains[a as usize];
+    let db = st.domains[b as usize];
+
+    if da == 0 || db == 0 {
+        return Err(Contradiction);
+    }
+
+    let mut changed = false;
+
+    if da.count_ones() == 1 && db.count_ones() == 1 && da == db {
+        return Err(Contradiction);
+    }
+
+    if da.count_ones() == 1 {
+        let forbidden = da;
+        let new_db = db & !forbidden;
+        if new_db == 0 {
+            return Err(Contradiction);
+        }
+        if st.narrow(b, new_db)? {
+            changed = true;
+        }
+    }
+
+    if db.count_ones() == 1 {
+        let forbidden = db;
+        let new_da = da & !forbidden;
+        if new_da == 0 {
+            return Err(Contradiction);
+        }
+        if st.narrow(a, new_da)? {
             changed = true;
         }
     }

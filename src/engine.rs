@@ -367,6 +367,93 @@ pub fn add_arrow(e: &mut Engine, cells_rc: &[(usize, usize)]) {
     });
 }
 
+pub fn add_king_constraints(e: &mut Engine) {
+    const KING_DELTAS: &[(i32, i32)] = &[
+        (-1, -1),
+        (-1, 0),
+        (-1, 1),
+        (0, -1),
+        (0, 1),
+        (1, -1),
+        (1, 0),
+        (1, 1),
+    ];
+
+    for r in 0..N {
+        for c in 0..N {
+            let a = idx(r, c);
+            for &(dr, dc) in KING_DELTAS {
+                let nr = r as i32 + dr;
+                let nc = c as i32 + dc;
+                if nr < 0 || nr >= N as i32 || nc < 0 || nc >= N as i32 {
+                    continue;
+                }
+                let b = idx(nr as usize, nc as usize);
+                // Avoid duplicate constraints (only add when a < b)
+                if a < b {
+                    e.add_constraint(Constraint::King { a, b });
+                }
+            }
+        }
+    }
+}
+
+pub fn add_knight_constraints(e: &mut Engine) {
+    const KNIGHT_DELTAS: &[(i32, i32)] = &[
+        (-2, -1),
+        (-2, 1),
+        (-1, -2),
+        (-1, 2),
+        (1, -2),
+        (1, 2),
+        (2, -1),
+        (2, 1),
+    ];
+
+    for r in 0..N {
+        for c in 0..N {
+            let a = idx(r, c);
+            for &(dr, dc) in KNIGHT_DELTAS {
+                let nr = r as i32 + dr;
+                let nc = c as i32 + dc;
+                if nr < 0 || nr >= N as i32 || nc < 0 || nc >= N as i32 {
+                    continue;
+                }
+                let b = idx(nr as usize, nc as usize);
+                if a < b {
+                    e.add_constraint(Constraint::Knight { a, b });
+                }
+            }
+        }
+    }
+}
+
+pub fn add_queen_constraints(e: &mut Engine) {
+    const DIAGS: &[(i32, i32)] = &[(-1, -1), (-1, 1), (1, -1), (1, 1)];
+
+    for r in 0..N {
+        for c in 0..N {
+            let a = idx(r, c);
+            for &(dr, dc) in DIAGS {
+                let mut nr = r as i32 + dr;
+                let mut nc = c as i32 + dc;
+
+                while nr >= 0 && nr < N as i32 && nc >= 0 && nc < N as i32 {
+                    let b = idx(nr as usize, nc as usize);
+
+                    // avoid duplicate constraints
+                    if a < b {
+                        e.add_constraint(Constraint::Queen { a, b });
+                    }
+
+                    nr += dr;
+                    nc += dc;
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::usize;
