@@ -222,7 +222,10 @@ fn draw_constraints(
             continue;
         }
         match c {
-            Constraint::AllDifferent { .. } => {}
+            Constraint::AllDifferent { .. }
+            | Constraint::King { .. }
+            | Constraint::Queen { .. }
+            | Constraint::Knight { .. } => {}
             Constraint::KropkiWhite { a, b } => draw_kropki(layout, opts, *a, *b, false, svg),
             Constraint::KropkiBlack { a, b } => draw_kropki(layout, opts, *a, *b, true, svg),
             Constraint::Thermo { cells, len } => draw_thermo(layout, opts, cells, *len, svg)?,
@@ -235,6 +238,9 @@ fn draw_constraints(
 fn constraint_layer(c: &Constraint) -> Layer {
     match c {
         Constraint::AllDifferent { .. } => Layer::UnderGrid,
+        Constraint::Knight { .. } => Layer::UnderGrid,
+        Constraint::King { .. } => Layer::UnderGrid,
+        Constraint::Queen { .. } => Layer::UnderGrid,
         Constraint::Thermo { .. } => Layer::UnderGrid,
         Constraint::KropkiWhite { .. } | Constraint::KropkiBlack { .. } => Layer::OverDigits,
         Constraint::Arrow { .. } => Layer::UnderGrid,

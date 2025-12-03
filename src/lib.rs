@@ -10,17 +10,18 @@ mod types;
 pub use analysis::{estimate_difficulty, estimate_difficulty_with};
 pub use constraints::Constraint;
 pub use engine::{
-    add_all_sudoku_constraints, add_arrow, add_kropki_black, add_kropki_white, add_thermo, Engine,
+    Engine, add_all_sudoku_constraints, add_arrow, add_king_constraints, add_knight_constraints,
+    add_kropki_black, add_kropki_white, add_queen_constraints, add_thermo,
 };
 pub use generator::{
-    generate_full_solution, generate_full_solution_with, generate_puzzle, generate_puzzle_with,
-    SimpleRng,
+    SimpleRng, generate_full_solution, generate_full_solution_with, generate_puzzle,
+    generate_puzzle_with,
 };
-pub use render::{render_puzzle_svg, Layer, RenderOptions};
+pub use render::{Layer, RenderOptions, render_puzzle_svg};
 pub use state::State;
 pub use types::{
-    bit_of_digit, box_of, col_of, digit_of_bit, row_of, CellIx, Contradiction, Difficulty, Domain,
-    Solve, DIGITS_MASK, EVEN_MASK, N, NN,
+    CellIx, Contradiction, DIGITS_MASK, Difficulty, Domain, EVEN_MASK, N, NN, Solve, bit_of_digit,
+    box_of, col_of, digit_of_bit, row_of,
 };
 
 #[cfg(test)]
