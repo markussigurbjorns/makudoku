@@ -10,8 +10,8 @@ mod types;
 pub use analysis::{estimate_difficulty, estimate_difficulty_with};
 pub use constraints::Constraint;
 pub use engine::{
-    Engine, add_all_sudoku_constraints, add_arrow, add_king_constraints, add_knight_constraints,
-    add_kropki_black, add_kropki_white, add_queen_constraints, add_thermo,
+    Engine, add_all_sudoku_constraints, add_arrow, add_killer_cage, add_king_constraints,
+    add_knight_constraints, add_kropki_black, add_kropki_white, add_queen_constraints, add_thermo,
 };
 pub use generator::{
     SimpleRng, generate_full_solution, generate_full_solution_with, generate_puzzle,
@@ -135,6 +135,41 @@ mod tests {
         add_arrow(&mut eng, &[(6, 2), (6, 3), (6, 4), (5, 4), (4, 4)]);
         add_arrow(&mut eng, &[(8, 3), (8, 2), (8, 1), (8, 0)]);
         add_arrow(&mut eng, &[(6, 7), (6, 8), (7, 7), (8, 6)]);
+        eng.load_givens(p).unwrap();
+        assert!(eng.search().unwrap());
+        assert!(eng.solved());
+        assert!(eng.has_unique_solution());
+    }
+
+    #[test]
+    fn solve_killer() {
+        let p = "........................................9........................................";
+        let mut eng = Engine::new();
+        add_all_sudoku_constraints(&mut eng);
+        add_killer_cage(&mut eng, &[(0, 0), (0, 1)], 12, true);
+        add_killer_cage(&mut eng, &[(0, 2), (0, 3)], 3, true);
+        add_killer_cage(&mut eng, &[(0, 4), (0, 5)], 11, true);
+        add_killer_cage(&mut eng, &[(0, 6), (0, 7)], 10, true);
+        add_killer_cage(&mut eng, &[(0, 8), (1, 8)], 11, true);
+        add_killer_cage(&mut eng, &[(2, 8), (3, 8)], 7, true);
+        add_killer_cage(&mut eng, &[(4, 8), (5, 8)], 13, true);
+        add_killer_cage(&mut eng, &[(6, 8), (7, 8)], 10, true);
+        add_killer_cage(&mut eng, &[(8, 7), (8, 8)], 12, true);
+        add_killer_cage(&mut eng, &[(8, 5), (8, 6)], 12, true);
+        add_killer_cage(&mut eng, &[(8, 3), (8, 4)], 7, true);
+        add_killer_cage(&mut eng, &[(8, 1), (8, 2)], 9, true);
+        add_killer_cage(&mut eng, &[(8, 0), (7, 0)], 8, true);
+        add_killer_cage(&mut eng, &[(6, 0), (5, 0)], 10, true);
+        add_killer_cage(&mut eng, &[(4, 0), (3, 0)], 15, true);
+        add_killer_cage(&mut eng, &[(2, 0), (1, 0)], 5, true);
+        add_killer_cage(&mut eng, &[(2, 2), (2, 3)], 12, true);
+        add_killer_cage(&mut eng, &[(2, 4), (2, 5)], 8, true);
+        add_killer_cage(&mut eng, &[(2, 6), (3, 6)], 11, true);
+        add_killer_cage(&mut eng, &[(4, 6), (5, 6)], 5, true);
+        add_killer_cage(&mut eng, &[(6, 6), (6, 5)], 8, true);
+        add_killer_cage(&mut eng, &[(6, 4), (6, 3)], 7, true);
+        add_killer_cage(&mut eng, &[(6, 2), (5, 2)], 9, true);
+        add_killer_cage(&mut eng, &[(4, 2), (3, 2)], 9, true);
         eng.load_givens(p).unwrap();
         assert!(eng.search().unwrap());
         assert!(eng.solved());

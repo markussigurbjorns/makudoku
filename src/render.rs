@@ -230,6 +230,9 @@ fn draw_constraints(
             Constraint::KropkiBlack { a, b } => draw_kropki(layout, opts, *a, *b, true, svg),
             Constraint::Thermo { cells, len } => draw_thermo(layout, opts, cells, *len, svg)?,
             Constraint::Arrow { cells, len } => draw_arrow(layout, opts, cells, *len, svg)?,
+            Constraint::Killer { cells, len, sum } => {
+                todo!()
+            }
         }
     }
     Ok(())
@@ -244,6 +247,7 @@ fn constraint_layer(c: &Constraint) -> Layer {
         Constraint::Thermo { .. } => Layer::UnderGrid,
         Constraint::KropkiWhite { .. } | Constraint::KropkiBlack { .. } => Layer::OverDigits,
         Constraint::Arrow { .. } => Layer::UnderGrid,
+        Constraint::Killer { .. } => Layer::UnderGrid,
     }
 }
 

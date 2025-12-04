@@ -297,7 +297,7 @@ pub fn add_all_sudoku_constraints(e: &mut Engine) {
         for c in 0..N {
             cells[c] = idx(r, c);
         }
-        e.add_constraint(Constraint::AllDifferent { cells });
+        e.add_constraint(Constraint::AllDifferent { cells, len: 9 });
     }
 
     for c in 0..N {
@@ -305,7 +305,7 @@ pub fn add_all_sudoku_constraints(e: &mut Engine) {
         for r in 0..N {
             cells[r] = idx(r, c);
         }
-        e.add_constraint(Constraint::AllDifferent { cells });
+        e.add_constraint(Constraint::AllDifferent { cells, len: 9 });
     }
 
     for br in 0..3 {
@@ -318,7 +318,7 @@ pub fn add_all_sudoku_constraints(e: &mut Engine) {
                     k += 1;
                 }
             }
-            e.add_constraint(Constraint::AllDifferent { cells });
+            e.add_constraint(Constraint::AllDifferent { cells, len: 9 });
         }
     }
 }
@@ -454,6 +454,40 @@ pub fn add_queen_constraints(e: &mut Engine) {
     }
 }
 
+pub fn add_killer_cage(e: &mut Engine, cells_rc: &[(usize, usize)], sum: u8, no_repeats: bool) {
+    assert!(
+        !cells_rc.is_empty(),
+        "killer cage must have at least 1 cell"
+    );
+    assert!(
+        cells_rc.len() <= 9,
+        "killer cage longer than 9 cells is not supported"
+    );
+
+    let mut cells_arr = [0u8; 9];
+    for (i, &(r, c)) in cells_rc.iter().enumerate() {
+        cells_arr[i] = idx(r, c);
+    }
+    let len = cells_rc.len() as u8;
+
+    if no_repeats && cells_rc.len() > 1 {
+        let mut ad_cells = [0u8; 9];
+        for (i, &cell) in cells_arr.iter().enumerate().take(cells_rc.len()) {
+            ad_cells[i] = cell;
+        }
+        e.add_constraint(Constraint::AllDifferent {
+            cells: ad_cells,
+            len: len as u8,
+        });
+    }
+
+    e.add_constraint(Constraint::Killer {
+        cells: cells_arr,
+        len,
+        sum,
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use std::usize;
@@ -490,7 +524,7 @@ mod tests {
         let cells: [CellIx; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 
         // all different first row
-        let c = Constraint::AllDifferent { cells };
+        let c = Constraint::AllDifferent { cells, len: 9 };
         eng.add_constraint(c);
 
         // ensure one constraint
@@ -522,7 +556,7 @@ mod tests {
             for c in 0..9 {
                 cells[c] = idx(r, c);
             }
-            eng.add_constraint(Constraint::AllDifferent { cells });
+            eng.add_constraint(Constraint::AllDifferent { cells, len: 9 });
         }
 
         eng.enqueue_all();
@@ -540,7 +574,7 @@ mod tests {
 
         // one constraint covering first row
         let cells: [CellIx; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
-        eng.add_constraint(Constraint::AllDifferent { cells });
+        eng.add_constraint(Constraint::AllDifferent { cells, len: 9 });
 
         // queue initially empty
         assert!(eng.state.queue.is_empty());
@@ -554,12 +588,28 @@ mod tests {
     }
 
     #[test]
+    fn add_killer_cage_uses_len_for_all_diff_scope() {
+        let mut eng = Engine::new();
+        add_killer_cage(&mut eng, &[(0, 0), (0, 1)], 7, true);
+
+        assert_eq!(eng.constraints.len(), 2);
+        assert!(matches!(
+            eng.constraints[0],
+            Constraint::AllDifferent { len, .. } if len == 2
+        ));
+        assert!(matches!(
+            eng.constraints[1],
+            Constraint::Killer { len, sum, .. } if len == 2 && sum == 7
+        ));
+    }
+
+    #[test]
     fn propagate_runs_constraint_and_clears_queue() {
         let mut eng = Engine::new();
 
         // all different on first row
         let cells: [CellIx; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
-        eng.add_constraint(Constraint::AllDifferent { cells });
+        eng.add_constraint(Constraint::AllDifferent { cells, len: 9 });
 
         // make cell (0,0) a singleton 1, others {1,2,3}
         let c00 = idx(0, 0) as usize;

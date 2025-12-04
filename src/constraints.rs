@@ -1,15 +1,46 @@
+use std::usize;
+
 use crate::{CellIx, Contradiction, DIGITS_MASK, Domain, State};
 
 #[derive(Clone)]
 pub enum Constraint {
-    AllDifferent { cells: [CellIx; 9] },
-    KropkiWhite { a: CellIx, b: CellIx },
-    KropkiBlack { a: CellIx, b: CellIx },
-    Thermo { cells: [CellIx; 9], len: u8 },
-    Arrow { cells: [CellIx; 9], len: u8 },
-    King { a: CellIx, b: CellIx },
-    Knight { a: CellIx, b: CellIx },
-    Queen { a: CellIx, b: CellIx },
+    AllDifferent {
+        cells: [CellIx; 9],
+        len: u8,
+    },
+    KropkiWhite {
+        a: CellIx,
+        b: CellIx,
+    },
+    KropkiBlack {
+        a: CellIx,
+        b: CellIx,
+    },
+    Thermo {
+        cells: [CellIx; 9],
+        len: u8,
+    },
+    Arrow {
+        cells: [CellIx; 9],
+        len: u8,
+    },
+    King {
+        a: CellIx,
+        b: CellIx,
+    },
+    Knight {
+        a: CellIx,
+        b: CellIx,
+    },
+    Queen {
+        a: CellIx,
+        b: CellIx,
+    },
+    Killer {
+        cells: [CellIx; 9],
+        len: u8,
+        sum: u8,
+    },
 }
 
 impl Constraint {
@@ -19,8 +50,9 @@ impl Constraint {
         F: FnMut(CellIx),
     {
         match self {
-            Constraint::AllDifferent { cells } => {
-                for &c in cells {
+            Constraint::AllDifferent { cells, len } => {
+                let len = *len as usize;
+                for &c in cells.iter().take(len) {
                     f(c);
                 }
             }
@@ -32,7 +64,9 @@ impl Constraint {
                 f(*a);
                 f(*b);
             }
-            Constraint::Thermo { cells, len } | Constraint::Arrow { cells, len } => {
+            Constraint::Thermo { cells, len }
+            | Constraint::Arrow { cells, len }
+            | Constraint::Killer { cells, len, .. } => {
                 let len = *len as usize;
                 for i in 0..len {
                     f(cells[i]);
@@ -43,7 +77,9 @@ impl Constraint {
 
     pub fn propagate(&self, state: &mut State) -> Result<bool, Contradiction> {
         match self {
-            Constraint::AllDifferent { cells } => propagate_all_diff(state, cells),
+            Constraint::AllDifferent { cells, len } => {
+                propagate_all_diff(state, &cells[..*len as usize])
+            }
             Constraint::KropkiWhite { a, b } => propagate_kropki_white(state, *a, *b),
             Constraint::KropkiBlack { a, b } => propagate_kropki_black(state, *a, *b),
             Constraint::Thermo { cells, len } => {
@@ -54,16 +90,20 @@ impl Constraint {
                 let len = *len as usize;
                 propagate_arrow(state, &cells[..len])
             }
-
             Constraint::King { a, b }
             | Constraint::Knight { a, b }
             | Constraint::Queen { a, b } => propagate_not_equal(state, *a, *b),
+            Constraint::Killer { cells, len, sum } => {
+                let len = *len as usize;
+                propagate_killer(state, &cells[..len], *sum)
+            }
         }
     }
 }
 
-fn propagate_all_diff(st: &mut State, cells: &[CellIx; 9]) -> Result<bool, Contradiction> {
+fn propagate_all_diff(st: &mut State, cells: &[CellIx]) -> Result<bool, Contradiction> {
     let mut changed = false;
+    let complete_set = cells.len() == 9;
 
     let mut taken: Domain = 0;
     let mut count: [u8; 10] = [0; 10]; // count[d] for d in 1..=9
@@ -103,12 +143,14 @@ fn propagate_all_diff(st: &mut State, cells: &[CellIx; 9]) -> Result<bool, Contr
         }
     }
 
-    for d in 1..=9 {
-        if count[d as usize] == 1 {
-            let bit = 1u16 << d;
-            let i = last_pos[d as usize].unwrap();
-            if st.assign(i, bit)? {
-                changed = true;
+    if complete_set {
+        for d in 1..=9 {
+            if count[d as usize] == 1 {
+                let bit = 1u16 << d;
+                let i = last_pos[d as usize].unwrap();
+                if st.assign(i, bit)? {
+                    changed = true;
+                }
             }
         }
     }
@@ -470,6 +512,92 @@ fn propagate_not_equal(st: &mut State, a: CellIx, b: CellIx) -> Result<bool, Con
     Ok(changed)
 }
 
+fn propagate_killer(st: &mut State, cells: &[CellIx], sum: u8) -> Result<bool, Contradiction> {
+    let len = cells.len();
+    if len == 0 {
+        return Ok(false);
+    }
+
+    let mut changed = false;
+
+    let mut mins = [0u8; 9];
+    let mut maxs = [0u8; 9];
+
+    for (i, &cell) in cells.iter().enumerate() {
+        let dom = st.domains[cell as usize];
+        if dom == 0 {
+            return Err(Contradiction);
+        }
+
+        let mut min_d = 10;
+        let mut max_d = 0;
+
+        let mut m = dom;
+        while m != 0 {
+            let d = m.trailing_zeros() as u8;
+            m &= !(1u16 << d);
+            if d < min_d {
+                min_d = d;
+            }
+            if d > max_d {
+                max_d = d;
+            }
+        }
+
+        if min_d == 10 {
+            return Err(Contradiction);
+        }
+
+        mins[i] = min_d;
+        maxs[i] = max_d;
+    }
+
+    let mut total_min: u8 = 0;
+    let mut total_max: u8 = 0;
+    for i in 0..len {
+        total_min = total_min.saturating_add(mins[i]);
+        total_max = total_max.saturating_add(maxs[i]);
+    }
+
+    if sum < total_min || sum > total_max {
+        return Err(Contradiction);
+    }
+
+    for (idx, &cell) in cells.iter().enumerate() {
+        let min_i = mins[idx];
+        let max_i = maxs[idx];
+
+        let others_min = total_min.saturating_sub(min_i);
+        let others_max = total_max.saturating_sub(max_i);
+
+        let lo_allowed = (sum.saturating_sub(others_max)).max(min_i);
+        let hi_allowed = (sum.saturating_sub(others_min)).min(max_i);
+
+        if lo_allowed > hi_allowed {
+            return Err(Contradiction);
+        }
+
+        let dom = st.domains[cell as usize];
+        let mut mask: Domain = 0;
+        for d in lo_allowed..=hi_allowed {
+            let bit = 1u16 << d;
+            if dom & bit != 0 {
+                mask |= bit;
+            }
+        }
+
+        if mask == 0 {
+            return Err(Contradiction);
+        }
+
+        if st.narrow(cell, mask)? {
+            changed = true;
+        }
+    }
+
+    Ok(changed)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::types::bit_of_digit;
@@ -548,6 +676,30 @@ mod tests {
 
         let changed = propagate_all_diff(&mut st, &cells).unwrap();
         assert!(!changed, "Should be already stable, no change expected");
+    }
+
+    #[test]
+    fn all_diff_respects_length_for_shorter_scopes() {
+        let mut st = State::new();
+
+        let cells: [CellIx; 9] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+
+        // cell 0 is 1; cell 1 cannot keep 1 after propagation on first two cells
+        st.domains[0] = mask(&[1]);
+        st.domains[1] = mask(&[1, 2, 3]);
+
+        let changed = propagate_all_diff(&mut st, &cells[..2]).unwrap();
+        assert!(changed);
+        assert_eq!(st.domains[1], mask(&[2, 3]));
+
+        // untouched cells beyond len keep their full domain
+        for i in 2..9 {
+            assert_eq!(
+                st.domains[i], DIGITS_MASK,
+                "cell {} unexpectedly changed",
+                i
+            );
+        }
     }
 
     #[test]
