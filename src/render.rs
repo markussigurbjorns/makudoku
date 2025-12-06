@@ -231,7 +231,7 @@ fn draw_constraints(
             Constraint::Thermo { cells, len } => draw_thermo(layout, opts, cells, *len, svg)?,
             Constraint::Arrow { cells, len } => draw_arrow(layout, opts, cells, *len, svg)?,
             Constraint::Killer { cells, len, sum } => {
-                todo!()
+                draw_killer(layout, opts, cells, *len, *sum, svg)?
             }
         }
     }
@@ -247,7 +247,7 @@ fn constraint_layer(c: &Constraint) -> Layer {
         Constraint::Thermo { .. } => Layer::UnderGrid,
         Constraint::KropkiWhite { .. } | Constraint::KropkiBlack { .. } => Layer::OverDigits,
         Constraint::Arrow { .. } => Layer::UnderGrid,
-        Constraint::Killer { .. } => Layer::UnderGrid,
+        Constraint::Killer { .. } => Layer::UnderDigits,
     }
 }
 
@@ -427,6 +427,138 @@ fn draw_arrow(
     Ok(())
 }
 
+fn draw_killer(
+    layout: &Layout,
+    opts: &RenderOptions,
+    cells: &[u8; 9],
+    len: u8,
+    sum: u8,
+    svg: &mut SvgDoc,
+) -> Result<(), String> {
+    let len = len as usize;
+    if len == 0 {
+        return Ok(());
+    }
+    let inset = layout.cell * 0.08;
+    let mut in_cage = [false; NN];
+    for &cell in cells.iter().take(len) {
+        in_cage[cell as usize] = true;
+    }
+
+    writeln!(
+        svg.buf,
+        r#"<g class="killer-cage" data-sum="{sum}" fill="none" stroke="darkorange" stroke-width="{w}" stroke-dasharray="6 4">"#,
+        sum = sum,
+        w = opts.stroke_thin
+    )
+    .unwrap();
+
+    let mut anchor = cells[0];
+
+    for &cell in cells.iter().take(len) {
+        let r = row_of(cell);
+        let c = col_of(cell);
+        let (x, y) = layout.cell_origin(r, c);
+
+        if row_of(anchor) > r || (row_of(anchor) == r && col_of(anchor) > c) {
+            anchor = cell;
+        }
+
+        let top_neighbor = r.checked_sub(1).map(|nr| nr * 9 + c).map(|ix| in_cage[ix]);
+        let bottom_neighbor = if r + 1 < 9 {
+            Some(in_cage[(r + 1) * 9 + c])
+        } else {
+            None
+        };
+        let left_neighbor = c.checked_sub(1).map(|nc| r * 9 + nc).map(|ix| in_cage[ix]);
+        let right_neighbor = if c + 1 < 9 {
+            Some(in_cage[r * 9 + c + 1])
+        } else {
+            None
+        };
+
+        if top_neighbor != Some(true) {
+            writeln!(
+                svg.buf,
+                r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" />"#,
+                x1 = x + inset,
+                y1 = y + inset,
+                x2 = x + layout.cell - inset,
+                y2 = y + inset
+            )
+            .unwrap();
+        }
+        if bottom_neighbor != Some(true) {
+            writeln!(
+                svg.buf,
+                r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" />"#,
+                x1 = x + inset,
+                y1 = y + layout.cell - inset,
+                x2 = x + layout.cell - inset,
+                y2 = y + layout.cell - inset
+            )
+            .unwrap();
+        }
+        if left_neighbor != Some(true) {
+            writeln!(
+                svg.buf,
+                r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" />"#,
+                x1 = x + inset,
+                y1 = y + inset,
+                x2 = x + inset,
+                y2 = y + layout.cell - inset
+            )
+            .unwrap();
+        }
+        if right_neighbor != Some(true) {
+            writeln!(
+                svg.buf,
+                r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" />"#,
+                x1 = x + layout.cell - inset,
+                y1 = y + inset,
+                x2 = x + layout.cell - inset,
+                y2 = y + layout.cell - inset
+            )
+            .unwrap();
+        }
+    }
+
+    let (ar, ac) = (row_of(anchor), col_of(anchor));
+    let (ax, ay) = layout.cell_origin(ar, ac);
+
+    let box_w = layout.cell * 0.2;
+    let box_h = layout.cell * 0.2;
+    let rect_x = ax + inset * 0.8;
+    let rect_y = ay + inset * 0.8;
+
+    writeln!(
+        svg.buf,
+        r#"<rect x="{x}" y="{y}" width="{w}" height="{h}" 
+        fill="white" stroke="none" />"#,
+        x = rect_x,
+        y = rect_y,
+        w = box_w,
+        h = box_h,
+    )
+    .unwrap();
+
+    writeln!(
+        svg.buf,
+        r#"<text x="{x}" y="{y}" font-family="{font}" font-size="{size}"
+         fill="darkorange" stroke="none"
+         text-anchor="middle" dominant-baseline="middle">{sum}</text>"#,
+        x = rect_x + box_w * 0.5,
+        y = rect_y + box_h * 0.5,
+        font = opts.font_family,
+        size = opts.font_size * 0.3,
+        sum = sum
+    )
+    .unwrap();
+
+    svg.buf.push_str("</g>");
+    Ok(())
+}
+
 fn rounded_polyline_path(points: &[(f32, f32)], radius: f32) -> String {
     use std::fmt::Write as _;
 
@@ -533,9 +665,18 @@ mod tests {
             cells: thermo_cells,
             len: 3,
         });
+        let mut killer_cells = [0u8; 9];
+        killer_cells[0] = idx(2, 0);
+        killer_cells[1] = idx(2, 1);
+        constraints.push(Constraint::Killer {
+            cells: killer_cells,
+            len: 2,
+            sum: 10,
+        });
 
         let svg = render_puzzle_svg(&puzzle, &constraints, RenderOptions::default()).unwrap();
         assert!(svg.contains("<svg"));
         assert!(svg.contains("<circle"));
+        assert!(svg.contains("killer-cage"));
     }
 }
