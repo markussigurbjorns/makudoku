@@ -14,8 +14,9 @@ pub use engine::{
     add_knight_constraints, add_kropki_black, add_kropki_white, add_queen_constraints, add_thermo,
 };
 pub use generator::{
-    SimpleRng, generate_full_solution, generate_full_solution_with, generate_puzzle,
-    generate_puzzle_with,
+    GeneratedPuzzle, GenerationConfig, Minimality, SimpleRng, Symmetry, VariantKind,
+    VariantPoolEntry, VariantSpec, generate_full_solution, generate_full_solution_with,
+    generate_puzzle, generate_puzzle_with, generate_random_variant_puzzle,
 };
 pub use render::{Layer, RenderOptions, render_puzzle_svg};
 pub use state::State;

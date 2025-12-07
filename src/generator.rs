@@ -1,6 +1,12 @@
-use crate::{Engine, NN, add_all_sudoku_constraints, types::digit_of_bit};
+use crate::{
+    Engine, NN, add_all_sudoku_constraints, add_arrow, add_killer_cage, add_king_constraints,
+    add_knight_constraints, add_kropki_black, add_kropki_white, add_queen_constraints, add_thermo,
+    types::{digit_of_bit, idx},
+};
 
 use std::{
+    collections::HashSet,
+    ops::RangeInclusive,
     time::{SystemTime, UNIX_EPOCH},
     usize,
 };
@@ -33,6 +39,10 @@ impl SimpleRng {
         let v = self.next_u32() as usize % len;
         range.start + v
     }
+
+    pub fn seed(&self) -> u64 {
+        self.0
+    }
 }
 
 fn shuffle<T>(rng: &mut SimpleRng, slice: &mut [T]) {
@@ -45,6 +55,558 @@ fn shuffle<T>(rng: &mut SimpleRng, slice: &mut [T]) {
         let j = rng.gen_range(0..i + 1); // random in [0, i]
         slice.swap(i, j);
     }
+}
+
+fn symmetric_of(pos: usize, symmetry: Symmetry) -> usize {
+    let r = pos / 9;
+    let c = pos % 9;
+    match symmetry {
+        Symmetry::Rotational180 => (8 - r) * 9 + (8 - c),
+        Symmetry::MirrorH => (8 - r) * 9 + c,
+        Symmetry::MirrorV => r * 9 + (8 - c),
+        Symmetry::DiagMain => c * 9 + r,
+        Symmetry::DiagAnti => (8 - c) * 9 + (8 - r),
+    }
+}
+
+fn clue_count(puzzle: &[Option<u8>]) -> usize {
+    puzzle.iter().filter(|c| c.is_some()).count()
+}
+
+fn apply_specs(engine: &mut Engine, specs: &[VariantSpec]) {
+    for spec in specs {
+        match spec {
+            VariantSpec::KropkiWhite(a, b) => add_kropki_white(engine, *a, *b),
+            VariantSpec::KropkiBlack(a, b) => add_kropki_black(engine, *a, *b),
+            VariantSpec::Thermo(path) => add_thermo(engine, path),
+            VariantSpec::Arrow(path) => add_arrow(engine, path),
+            VariantSpec::Killer {
+                cells,
+                sum,
+                no_repeats,
+            } => add_killer_cage(engine, cells, *sum, *no_repeats),
+            VariantSpec::King => add_king_constraints(engine),
+            VariantSpec::Knight => add_knight_constraints(engine),
+            VariantSpec::Queen => add_queen_constraints(engine),
+        }
+    }
+}
+
+fn fill_killer_sums(solution: &[u8; NN], specs: &mut [VariantSpec]) {
+    for spec in specs.iter_mut() {
+        if let VariantSpec::Killer {
+            cells,
+            sum,
+            no_repeats: _,
+        } = spec
+        {
+            let mut s: u8 = 0;
+            for &(r, c) in cells.iter() {
+                let i = r * 9 + c;
+                s = s.saturating_add(solution[i] as u8);
+            }
+            *sum = s;
+        }
+    }
+}
+
+fn apply_specs_without_killer_sums(engine: &mut Engine, specs: &[VariantSpec]) {
+    for spec in specs {
+        match spec {
+            VariantSpec::Killer {
+                cells,
+                no_repeats: true,
+                ..
+            } => {
+                let mut arr = [0u8; 9];
+                for (i, &(r, c)) in cells.iter().enumerate() {
+                    arr[i] = idx(r, c);
+                }
+                engine.add_constraint(crate::Constraint::AllDifferent {
+                    cells: arr,
+                    len: cells.len() as u8,
+                });
+            }
+            VariantSpec::Killer { .. } => {}
+            VariantSpec::KropkiWhite(a, b) => add_kropki_white(engine, *a, *b),
+            VariantSpec::KropkiBlack(a, b) => add_kropki_black(engine, *a, *b),
+            VariantSpec::Thermo(path) => add_thermo(engine, path),
+            VariantSpec::Arrow(path) => add_arrow(engine, path),
+            VariantSpec::King => add_king_constraints(engine),
+            VariantSpec::Knight => add_knight_constraints(engine),
+            VariantSpec::Queen => add_queen_constraints(engine),
+        }
+    }
+}
+
+fn weighted_choice(rng: &mut SimpleRng, entries: &[VariantPoolEntry]) -> Option<VariantKind> {
+    let total: u64 = entries.iter().map(|e| e.weight as u64).sum();
+    if total == 0 {
+        return None;
+    }
+    let pick = rng.next_u32() as u64 % total;
+    let mut acc = 0u64;
+    for e in entries {
+        acc += e.weight as u64;
+        if pick < acc {
+            return Some(e.kind);
+        }
+    }
+    None
+}
+
+fn choose_variant_kinds(cfg: &GenerationConfig, rng: &mut SimpleRng) -> Vec<VariantKind> {
+    let mut out = cfg.required_variants.clone();
+    let target = {
+        let (start, end) = (*cfg.variant_count.start(), *cfg.variant_count.end());
+        if start == end {
+            start
+        } else {
+            rng.gen_range(start..end + 1)
+        }
+    };
+
+    let mut guard = 0;
+    while out.len() < target && guard < 50 {
+        guard += 1;
+        if let Some(kind) = weighted_choice(rng, &cfg.variant_pool) {
+            if matches!(
+                kind,
+                VariantKind::King | VariantKind::Knight | VariantKind::Queen
+            ) {
+                if out.contains(&kind) {
+                    continue;
+                }
+            }
+            out.push(kind);
+        }
+    }
+    out
+}
+
+fn gen_kropki_specs(
+    rng: &mut SimpleRng,
+    whites: usize,
+    blacks: usize,
+    used_edges: &mut HashSet<((usize, usize), (usize, usize))>,
+) -> Vec<VariantSpec> {
+    let mut edges = Vec::with_capacity(144);
+    for r in 0..9 {
+        for c in 0..9 {
+            if c + 1 < 9 {
+                edges.push(((r, c), (r, c + 1)));
+            }
+            if r + 1 < 9 {
+                edges.push(((r, c), (r + 1, c)));
+            }
+        }
+    }
+    shuffle(rng, &mut edges);
+
+    let mut out = Vec::new();
+    for edge in edges.iter() {
+        let mut norm = *edge;
+        if norm.1 < norm.0 {
+            norm = (norm.1, norm.0);
+        }
+        if used_edges.contains(&norm) {
+            continue;
+        }
+        if out
+            .iter()
+            .filter(|v| matches!(v, VariantSpec::KropkiWhite(..)))
+            .count()
+            < whites
+        {
+            used_edges.insert(norm);
+            out.push(VariantSpec::KropkiWhite(edge.0, edge.1));
+        } else if out
+            .iter()
+            .filter(|v| matches!(v, VariantSpec::KropkiBlack(..)))
+            .count()
+            < blacks
+        {
+            used_edges.insert(norm);
+            out.push(VariantSpec::KropkiBlack(edge.0, edge.1));
+        }
+        if out.len() >= whites + blacks {
+            break;
+        }
+    }
+    out
+}
+
+fn random_path(
+    rng: &mut SimpleRng,
+    length: RangeInclusive<usize>,
+    occupied: &mut HashSet<(usize, usize)>,
+) -> Option<Vec<(usize, usize)>> {
+    let min_len = *length.start();
+    let max_len = *length.end();
+    let mut attempts = 0;
+    while attempts < 40 {
+        attempts += 1;
+        let target_len = if min_len == max_len {
+            min_len
+        } else {
+            rng.gen_range(min_len..max_len + 1)
+        };
+        let start_r = rng.gen_range(0..9);
+        let start_c = rng.gen_range(0..9);
+        if occupied.contains(&(start_r, start_c)) {
+            continue;
+        }
+        let mut path = vec![(start_r, start_c)];
+        let mut used_local: HashSet<(usize, usize)> = HashSet::new();
+        used_local.insert((start_r, start_c));
+        while path.len() < target_len {
+            let (r, c) = path[path.len() - 1];
+            let mut options = Vec::with_capacity(4);
+            if r > 0 {
+                options.push((r - 1, c));
+            }
+            if r + 1 < 9 {
+                options.push((r + 1, c));
+            }
+            if c > 0 {
+                options.push((r, c - 1));
+            }
+            if c + 1 < 9 {
+                options.push((r, c + 1));
+            }
+            shuffle(rng, &mut options);
+            let mut placed = false;
+            for (nr, nc) in options {
+                if used_local.contains(&(nr, nc)) || occupied.contains(&(nr, nc)) {
+                    continue;
+                }
+                path.push((nr, nc));
+                used_local.insert((nr, nc));
+                placed = true;
+                break;
+            }
+            if !placed {
+                break;
+            }
+        }
+        if path.len() >= min_len {
+            for cell in path.iter() {
+                occupied.insert(*cell);
+            }
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn gen_thermo_specs(
+    rng: &mut SimpleRng,
+    count: usize,
+    length: RangeInclusive<usize>,
+    occupied: &mut HashSet<(usize, usize)>,
+) -> Vec<VariantSpec> {
+    let mut out = Vec::new();
+    for _ in 0..count {
+        if let Some(path) = random_path(rng, length.clone(), occupied) {
+            out.push(VariantSpec::Thermo(path));
+        }
+    }
+    out
+}
+
+fn gen_arrow_specs(
+    rng: &mut SimpleRng,
+    count: usize,
+    length: RangeInclusive<usize>,
+    occupied: &mut HashSet<(usize, usize)>,
+) -> Vec<VariantSpec> {
+    let mut out = Vec::new();
+    for _ in 0..count {
+        if let Some(path) = random_path(rng, length.clone(), occupied) {
+            if path.len() < 2 {
+                continue;
+            }
+            // treat first as circle
+            out.push(VariantSpec::Arrow(path));
+        }
+    }
+    out
+}
+
+fn gen_killer_specs(
+    rng: &mut SimpleRng,
+    count: usize,
+    size: RangeInclusive<usize>,
+    no_repeats: bool,
+    occupied: &mut HashSet<(usize, usize)>,
+) -> Vec<VariantSpec> {
+    let mut out = Vec::new();
+    let mut available: Vec<(usize, usize)> = (0..9)
+        .flat_map(|r| (0..9).map(move |c| (r, c)))
+        .filter(|cell| !occupied.contains(cell))
+        .collect();
+    shuffle(rng, &mut available);
+
+    let min_size = *size.start();
+    let max_size = *size.end();
+
+    for _ in 0..count {
+        if available.is_empty() {
+            break;
+        }
+        let len = if min_size == max_size {
+            min_size
+        } else {
+            rng.gen_range(min_size..max_size + 1)
+        };
+        if len == 0 {
+            continue;
+        }
+        let mut cells = Vec::new();
+        let mut attempts = 0;
+        while cells.len() < len && attempts < 20 {
+            attempts += 1;
+            if let Some(cell) = available.pop() {
+                cells.push(cell);
+            } else {
+                break;
+            }
+        }
+        if cells.is_empty() {
+            continue;
+        }
+        for cell in cells.iter() {
+            occupied.insert(*cell);
+        }
+        out.push(VariantSpec::Killer {
+            cells,
+            sum: 0,
+            no_repeats,
+        });
+    }
+    out
+}
+
+fn sample_range(rng: &mut SimpleRng, range: &RangeInclusive<usize>) -> usize {
+    let (start, end) = (*range.start(), *range.end());
+    if start == end {
+        start
+    } else {
+        rng.gen_range(start..end + 1)
+    }
+}
+
+fn instantiate_variants(cfg: &GenerationConfig, rng: &mut SimpleRng) -> Vec<VariantSpec> {
+    let kinds = choose_variant_kinds(cfg, rng);
+    let mut specs = Vec::new();
+    let mut used_edges: HashSet<((usize, usize), (usize, usize))> = HashSet::new();
+    let mut occupied: HashSet<(usize, usize)> = HashSet::new();
+
+    for kind in kinds {
+        match kind {
+            VariantKind::Kropki => {
+                let whites = sample_range(rng, &cfg.kropki_white);
+                let blacks = sample_range(rng, &cfg.kropki_black);
+                specs.extend(gen_kropki_specs(rng, whites, blacks, &mut used_edges));
+            }
+            VariantKind::Thermo => {
+                let count = sample_range(rng, &cfg.thermo_count);
+                specs.extend(gen_thermo_specs(
+                    rng,
+                    count,
+                    cfg.thermo_length.clone(),
+                    &mut occupied,
+                ));
+            }
+            VariantKind::Arrow => {
+                let count = sample_range(rng, &cfg.arrow_count);
+                specs.extend(gen_arrow_specs(
+                    rng,
+                    count,
+                    cfg.arrow_length.clone(),
+                    &mut occupied,
+                ));
+            }
+            VariantKind::Killer => {
+                let count = sample_range(rng, &cfg.killer_count);
+                specs.extend(gen_killer_specs(
+                    rng,
+                    count,
+                    cfg.killer_size.clone(),
+                    cfg.killer_no_repeats,
+                    &mut occupied,
+                ));
+            }
+            VariantKind::King => specs.push(VariantSpec::King),
+            VariantKind::Knight => specs.push(VariantSpec::Knight),
+            VariantKind::Queen => specs.push(VariantSpec::Queen),
+        }
+    }
+
+    specs
+}
+
+fn removal_units(symmetry: Option<Symmetry>, rng: &mut SimpleRng) -> Vec<Vec<usize>> {
+    match symmetry {
+        None => {
+            let mut positions: Vec<usize> = (0..NN).collect();
+            shuffle(rng, &mut positions);
+            positions.into_iter().map(|p| vec![p]).collect()
+        }
+        Some(sym) => {
+            let mut visited = [false; NN];
+            let mut units = Vec::new();
+            for pos in 0..NN {
+                if visited[pos] {
+                    continue;
+                }
+                let partner = symmetric_of(pos, sym);
+                visited[pos] = true;
+                visited[partner] = true;
+                if partner == pos {
+                    units.push(vec![pos]);
+                } else {
+                    units.push(vec![pos, partner]);
+                }
+            }
+            shuffle(rng, &mut units);
+            units
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Symmetry {
+    Rotational180,
+    MirrorH,
+    MirrorV,
+    DiagMain,
+    DiagAnti,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Minimality {
+    None,
+    Strict,
+    AtMost(usize),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum VariantKind {
+    Kropki,
+    Thermo,
+    Arrow,
+    Killer,
+    King,
+    Knight,
+    Queen,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum VariantSpec {
+    KropkiWhite((usize, usize), (usize, usize)),
+    KropkiBlack((usize, usize), (usize, usize)),
+    Thermo(Vec<(usize, usize)>),
+    Arrow(Vec<(usize, usize)>),
+    Killer {
+        cells: Vec<(usize, usize)>,
+        sum: u8,
+        no_repeats: bool,
+    },
+    King,
+    Knight,
+    Queen,
+}
+
+#[derive(Clone, Debug)]
+pub struct VariantPoolEntry {
+    pub kind: VariantKind,
+    pub weight: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct GenerationConfig {
+    pub seed: Option<u64>,
+    pub required_variants: Vec<VariantKind>,
+    pub variant_pool: Vec<VariantPoolEntry>,
+    pub variant_count: RangeInclusive<usize>,
+    pub symmetry: Option<Symmetry>,
+    pub clue_target: Option<usize>,
+    pub clue_range: Option<RangeInclusive<usize>>,
+    pub minimality: Minimality,
+    pub kropki_white: RangeInclusive<usize>,
+    pub kropki_black: RangeInclusive<usize>,
+    pub thermo_count: RangeInclusive<usize>,
+    pub thermo_length: RangeInclusive<usize>,
+    pub arrow_count: RangeInclusive<usize>,
+    pub arrow_length: RangeInclusive<usize>,
+    pub killer_count: RangeInclusive<usize>,
+    pub killer_size: RangeInclusive<usize>,
+    pub killer_no_repeats: bool,
+}
+
+impl Default for GenerationConfig {
+    fn default() -> Self {
+        Self {
+            seed: None,
+            required_variants: Vec::new(),
+            variant_pool: vec![
+                VariantPoolEntry {
+                    kind: VariantKind::Kropki,
+                    weight: 1,
+                },
+                VariantPoolEntry {
+                    kind: VariantKind::Thermo,
+                    weight: 1,
+                },
+                VariantPoolEntry {
+                    kind: VariantKind::Arrow,
+                    weight: 1,
+                },
+                VariantPoolEntry {
+                    kind: VariantKind::Killer,
+                    weight: 1,
+                },
+                VariantPoolEntry {
+                    kind: VariantKind::King,
+                    weight: 1,
+                },
+                VariantPoolEntry {
+                    kind: VariantKind::Knight,
+                    weight: 1,
+                },
+                VariantPoolEntry {
+                    kind: VariantKind::Queen,
+                    weight: 1,
+                },
+            ],
+            variant_count: 1..=3,
+            symmetry: None,
+            clue_target: Some(30),
+            clue_range: None,
+            minimality: Minimality::None,
+            kropki_white: 6..=12,
+            kropki_black: 6..=12,
+            thermo_count: 2..=4,
+            thermo_length: 3..=6,
+            arrow_count: 2..=4,
+            arrow_length: 3..=3,
+            killer_count: 2..=4,
+            killer_size: 2..=4,
+            killer_no_repeats: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct GeneratedPuzzle {
+    pub puzzle: String,
+    pub solution: [u8; NN],
+    pub constraints: Vec<VariantSpec>,
+    pub seed: u64,
+    pub enginge: Engine,
+    pub clue_count: usize,
+    pub symmetry: Option<Symmetry>,
 }
 
 pub fn generate_full_solution(rng: SimpleRng) -> [u8; NN] {
@@ -119,6 +681,104 @@ where
     puzzle_vec_to_string(&puzzle)
 }
 
+pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> GeneratedPuzzle {
+    let mut rng = match cfg.seed {
+        Some(seed) => SimpleRng::from_seed(seed),
+        None => SimpleRng::new(),
+    };
+    let seed = rng.seed();
+
+    let mut specs = instantiate_variants(&cfg, &mut rng);
+    println!("specs: {:?}", specs);
+
+    let spec_clone = specs.clone();
+    let solution = generate_full_solution_with(rng.clone(), |eng| {
+        apply_specs_without_killer_sums(eng, &spec_clone);
+    });
+
+    fill_killer_sums(&solution, &mut specs);
+
+    let mut puzzle: Vec<Option<u8>> = solution.iter().copied().map(Some).collect();
+
+    let clue_range = cfg.clue_range.clone();
+    let clue_target = cfg.clue_target;
+
+    let desired_min = clue_range
+        .as_ref()
+        .map(|r| *r.start())
+        .or(clue_target)
+        .unwrap_or(0);
+    let desired_max = clue_range
+        .as_ref()
+        .map(|r| *r.end())
+        .or(clue_target)
+        .unwrap_or(desired_min);
+
+    let mut units = removal_units(cfg.symmetry, &mut rng);
+    let stop_threshold = match cfg.minimality {
+        Minimality::None => Some(desired_max),
+        Minimality::AtMost(k) => Some(desired_max + k),
+        Minimality::Strict => None,
+    };
+
+    'outer: loop {
+        let mut changed = false;
+        for unit in units.iter() {
+            if unit.iter().all(|&p| puzzle[p].is_none()) {
+                continue;
+            }
+            let saved: Vec<(usize, Option<u8>)> = unit.iter().map(|&p| (p, puzzle[p])).collect();
+            for &p in unit.iter() {
+                puzzle[p] = None;
+            }
+            let clues_now = clue_count(&puzzle);
+            if clues_now < desired_min {
+                for (p, v) in saved {
+                    puzzle[p] = v;
+                }
+                continue;
+            }
+            let puzzle_str = puzzle_vec_to_string(&puzzle);
+            if !has_unique_solution_with_specs(&puzzle_str, &specs) {
+                for (p, v) in saved {
+                    puzzle[p] = v;
+                }
+                continue;
+            }
+            changed = true;
+            if let Some(stop) = stop_threshold {
+                if clues_now <= stop {
+                    break 'outer;
+                }
+            }
+        }
+
+        if !matches!(cfg.minimality, Minimality::Strict) || !changed {
+            break;
+        }
+        shuffle(&mut rng, &mut units);
+    }
+
+    let puzzle_str = puzzle_vec_to_string(&puzzle);
+
+    let mut eng = Engine::new();
+    add_all_sudoku_constraints(&mut eng);
+    apply_specs(&mut eng, &specs);
+    eng.load_givens(&puzzle_str).unwrap();
+    eng.search().unwrap();
+    assert!(eng.solved());
+
+    GeneratedPuzzle {
+        puzzle: puzzle_str,
+        solution,
+        constraints: specs,
+        seed,
+        enginge: eng,
+        clue_count: clue_count(&puzzle),
+        symmetry: cfg.symmetry,
+    }
+}
+
 fn _solution_to_string(sol: &[u8; NN]) -> String {
     let mut s = String::with_capacity(NN);
     for &d in sol.iter() {
@@ -145,6 +805,18 @@ where
     let mut eng = Engine::new();
     add_all_sudoku_constraints(&mut eng);
     extra(&mut eng);
+
+    if eng.load_givens(puzzle).is_err() {
+        return false;
+    }
+
+    eng.has_unique_solution()
+}
+
+fn has_unique_solution_with_specs(puzzle: &str, specs: &[VariantSpec]) -> bool {
+    let mut eng = Engine::new();
+    add_all_sudoku_constraints(&mut eng);
+    apply_specs(&mut eng, specs);
 
     if eng.load_givens(puzzle).is_err() {
         return false;
@@ -218,5 +890,41 @@ mod tests {
         assert!(eng.search().unwrap());
         assert!(eng.solved());
         assert!(eng.has_unique_solution());
+    }
+
+    #[test]
+    fn generate_random_variant_puzzle_is_unique_and_reports_branches() {
+        let cfg = GenerationConfig {
+            seed: Some(4242),
+            clue_target: Some(32),
+            minimality: Minimality::AtMost(0),
+            ..Default::default()
+        };
+        let out = generate_random_variant_puzzle(cfg);
+        assert_eq!(out.clue_count, clue_count(&out.puzzle));
+        assert!(has_unique_solution_with_specs(
+            &out.puzzle,
+            &out.constraints
+        ));
+    }
+
+    #[test]
+    fn symmetry_is_respected_when_requested() {
+        let cfg = GenerationConfig {
+            seed: Some(999),
+            variant_count: 0..=0,
+            symmetry: Some(Symmetry::Rotational180),
+            clue_target: Some(34),
+            minimality: Minimality::AtMost(0),
+            ..Default::default()
+        };
+        let out = generate_random_variant_puzzle(cfg);
+        let bytes: Vec<char> = out.puzzle.chars().collect();
+        for i in 0..NN {
+            let j = symmetric_of(i, Symmetry::Rotational180);
+            let is_clue_i = bytes[i].is_ascii_digit() && bytes[i] != '.';
+            let is_clue_j = bytes[j].is_ascii_digit() && bytes[j] != '.';
+            assert_eq!(is_clue_i, is_clue_j);
+        }
     }
 }

@@ -5,7 +5,7 @@ use crate::{
     types::{bit_of_digit, idx},
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Engine {
     pub state: State,
     pub constraints: Vec<Constraint>,

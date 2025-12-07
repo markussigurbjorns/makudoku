@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use crate::{CellIx, Contradiction, DIGITS_MASK, Domain, NN};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct State {
     pub domains: [Domain; NN],
     pub(crate) trail: Vec<(CellIx, Domain)>,

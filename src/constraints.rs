@@ -2,7 +2,7 @@ use std::usize;
 
 use crate::{CellIx, Contradiction, DIGITS_MASK, Domain, State};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Constraint {
     AllDifferent {
         cells: [CellIx; 9],
