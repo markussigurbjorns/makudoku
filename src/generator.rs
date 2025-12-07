@@ -645,10 +645,10 @@ impl Default for GenerationConfig {
                     kind: VariantKind::Knight,
                     weight: 1,
                 },
-                VariantPoolEntry {
-                    kind: VariantKind::Queen,
-                    weight: 1,
-                },
+                //VariantPoolEntry {
+                //    kind: VariantKind::Queen,
+                //    weight: 1,
+                //},
             ],
             variant_count: 1..=3,
             symmetry: None,
@@ -660,7 +660,7 @@ impl Default for GenerationConfig {
             thermo_count: 2..=4,
             thermo_length: 3..=6,
             arrow_count: 2..=4,
-            arrow_length: 3..=3,
+            arrow_length: 3..=4,
             killer_count: 2..=4,
             killer_size: 2..=4,
             killer_no_repeats: true,
