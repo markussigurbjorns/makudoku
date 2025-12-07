@@ -11,6 +11,7 @@ pub struct Engine {
     pub constraints: Vec<Constraint>,
     pub branches: u32,
     watchers: Vec<Vec<usize>>,
+    queued: Vec<bool>,
 }
 
 impl Engine {
@@ -20,6 +21,7 @@ impl Engine {
             constraints: Vec::new(),
             watchers: vec![Vec::new(); NN],
             branches: 0,
+            queued: Vec::new(),
         }
     }
     fn save_state(&self) -> ([Domain; NN], Vec<(CellIx, Domain)>, VecDeque<usize>, u32) {
@@ -36,6 +38,10 @@ impl Engine {
         self.state.trail = snap.1;
         self.state.queue = snap.2;
         self.branches = snap.3;
+        self.queued.fill(false);
+        for &ci in &self.state.queue {
+            self.queued[ci] = true;
+        }
     }
 
     pub fn with_saved_state<T>(&mut self, f: impl FnOnce(&mut Engine) -> T) -> T {
@@ -51,16 +57,26 @@ impl Engine {
             self.watchers[i as usize].push(idx);
         });
         self.constraints.push(c);
+        self.queued.push(false);
     }
 
     pub fn enqueue_all(&mut self) {
         for i in 0..self.constraints.len() {
-            self.state.queue.push_back(i);
+            self.enqueue_constraint(i);
         }
     }
 
     pub fn enqueue_cell_constraints(&mut self, i: CellIx) {
-        for &ci in &self.watchers[i as usize] {
+        let watchers = self.watchers[i as usize].clone();
+        for ci in watchers {
+            self.enqueue_constraint(ci);
+        }
+    }
+
+    #[inline]
+    fn enqueue_constraint(&mut self, ci: usize) {
+        if !self.queued[ci] {
+            self.queued[ci] = true;
             self.state.queue.push_back(ci);
         }
     }
@@ -68,15 +84,20 @@ impl Engine {
     pub fn propagate(&mut self) -> Result<Solve, Contradiction> {
         let mut any = false;
         while let Some(ci) = self.state.queue.pop_front() {
+            self.queued[ci] = false;
             let changed = self.constraints[ci].propagate(&mut self.state)?;
             if changed {
                 any = true;
-                // Re-enqueue neighbors: every cell in this constraint
+                let mut cells = Vec::new();
                 self.constraints[ci].for_each_cell(|j| {
-                    for &c2 in &self.watchers[j as usize] {
-                        self.state.queue.push_back(c2);
-                    }
+                    cells.push(j);
                 });
+                for j in cells {
+                    let watchers = self.watchers[j as usize].clone();
+                    for c2 in watchers {
+                        self.enqueue_constraint(c2);
+                    }
+                }
             }
         }
         if any {
@@ -85,7 +106,7 @@ impl Engine {
             Ok(Solve::Stalled)
         }
     }
-    /// Initialize from givens: digits string of length 81 ('.' or '0' for blank).
+
     pub fn load_givens(&mut self, s: &str) -> Result<(), String> {
         let bytes: Vec<u8> = s
             .chars()
