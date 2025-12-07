@@ -333,6 +333,56 @@ fn gen_arrow_specs(
     out
 }
 
+fn random_connected_cells(
+    rng: &mut SimpleRng,
+    len: usize,
+    occupied: &HashSet<(usize, usize)>,
+) -> Option<Vec<(usize, usize)>> {
+    if len == 0 {
+        return None;
+    }
+    let mut candidates: Vec<(usize, usize)> = (0..9)
+        .flat_map(|r| (0..9).map(move |c| (r, c)))
+        .filter(|cell| !occupied.contains(cell))
+        .collect();
+    shuffle(rng, &mut candidates);
+
+    let neighbor_offsets = [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)];
+
+    for start in candidates.into_iter().take(40) {
+        let mut cage = vec![start];
+        let mut used = HashSet::new();
+        used.insert(start);
+        while cage.len() < len {
+            let mut neighbors = Vec::new();
+            let (cr, cc) = *cage.last().unwrap();
+            for (dr, dc) in neighbor_offsets {
+                let nr = cr as i32 + dr;
+                let nc = cc as i32 + dc;
+                if nr < 0 || nr >= 9 || nc < 0 || nc >= 9 {
+                    continue;
+                }
+                let cell = (nr as usize, nc as usize);
+                if occupied.contains(&cell) || used.contains(&cell) {
+                    continue;
+                }
+                neighbors.push(cell);
+            }
+            if neighbors.is_empty() {
+                break;
+            }
+            let idx = rng.gen_range(0..neighbors.len());
+            let next = neighbors[idx];
+            cage.push(next);
+            used.insert(next);
+        }
+        if cage.len() == len {
+            return Some(cage);
+        }
+    }
+    None
+}
+
 fn gen_killer_specs(
     rng: &mut SimpleRng,
     count: usize,
@@ -341,19 +391,11 @@ fn gen_killer_specs(
     occupied: &mut HashSet<(usize, usize)>,
 ) -> Vec<VariantSpec> {
     let mut out = Vec::new();
-    let mut available: Vec<(usize, usize)> = (0..9)
-        .flat_map(|r| (0..9).map(move |c| (r, c)))
-        .filter(|cell| !occupied.contains(cell))
-        .collect();
-    shuffle(rng, &mut available);
 
     let min_size = *size.start();
     let max_size = *size.end();
 
     for _ in 0..count {
-        if available.is_empty() {
-            break;
-        }
         let len = if min_size == max_size {
             min_size
         } else {
@@ -362,27 +404,17 @@ fn gen_killer_specs(
         if len == 0 {
             continue;
         }
-        let mut cells = Vec::new();
-        let mut attempts = 0;
-        while cells.len() < len && attempts < 20 {
-            attempts += 1;
-            if let Some(cell) = available.pop() {
-                cells.push(cell);
-            } else {
-                break;
+
+        if let Some(cells) = random_connected_cells(rng, len, occupied) {
+            for cell in cells.iter() {
+                occupied.insert(*cell);
             }
+            out.push(VariantSpec::Killer {
+                cells,
+                sum: 0,
+                no_repeats,
+            });
         }
-        if cells.is_empty() {
-            continue;
-        }
-        for cell in cells.iter() {
-            occupied.insert(*cell);
-        }
-        out.push(VariantSpec::Killer {
-            cells,
-            sum: 0,
-            no_repeats,
-        });
     }
     out
 }
@@ -473,6 +505,44 @@ fn removal_units(symmetry: Option<Symmetry>, rng: &mut SimpleRng) -> Vec<Vec<usi
             units
         }
     }
+}
+
+fn constraint_cells(specs: &[VariantSpec]) -> HashSet<usize> {
+    let mut out = HashSet::new();
+    for spec in specs {
+        match spec {
+            VariantSpec::KropkiWhite((r1, c1), (r2, c2))
+            | VariantSpec::KropkiBlack((r1, c1), (r2, c2)) => {
+                out.insert(r1 * 9 + c1);
+                out.insert(r2 * 9 + c2);
+            }
+            VariantSpec::Thermo(path) | VariantSpec::Arrow(path) => {
+                for &(r, c) in path {
+                    out.insert(r * 9 + c);
+                }
+            }
+            VariantSpec::Killer { cells, .. } => {
+                for &(r, c) in cells {
+                    out.insert(r * 9 + c);
+                }
+            }
+            VariantSpec::King | VariantSpec::Knight | VariantSpec::Queen => {}
+        }
+    }
+    out
+}
+
+fn prioritize_units(
+    units: &mut Vec<Vec<usize>>,
+    constraint_cells: &HashSet<usize>,
+    rng: &mut SimpleRng,
+) {
+    shuffle(rng, units);
+    units.sort_by(|a, b| {
+        let ca = a.iter().filter(|p| constraint_cells.contains(p)).count();
+        let cb = b.iter().filter(|p| constraint_cells.contains(p)).count();
+        cb.cmp(&ca)
+    });
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -604,7 +674,7 @@ pub struct GeneratedPuzzle {
     pub solution: [u8; NN],
     pub constraints: Vec<VariantSpec>,
     pub seed: u64,
-    pub enginge: Engine,
+    pub engine: Engine,
     pub clue_count: usize,
     pub symmetry: Option<Symmetry>,
 }
@@ -689,8 +759,7 @@ pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> GeneratedPuzzle 
     let seed = rng.seed();
 
     let mut specs = instantiate_variants(&cfg, &mut rng);
-    println!("specs: {:?}", specs);
-
+    println!("specs are: {:?}", specs);
     let spec_clone = specs.clone();
     let solution = generate_full_solution_with(rng.clone(), |eng| {
         apply_specs_without_killer_sums(eng, &spec_clone);
@@ -714,7 +783,9 @@ pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> GeneratedPuzzle 
         .or(clue_target)
         .unwrap_or(desired_min);
 
+    let constraint_cells = constraint_cells(&specs);
     let mut units = removal_units(cfg.symmetry, &mut rng);
+    prioritize_units(&mut units, &constraint_cells, &mut rng);
     let stop_threshold = match cfg.minimality {
         Minimality::None => Some(desired_max),
         Minimality::AtMost(k) => Some(desired_max + k),
@@ -756,7 +827,7 @@ pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> GeneratedPuzzle 
         if !matches!(cfg.minimality, Minimality::Strict) || !changed {
             break;
         }
-        shuffle(&mut rng, &mut units);
+        prioritize_units(&mut units, &constraint_cells, &mut rng);
     }
 
     let puzzle_str = puzzle_vec_to_string(&puzzle);
@@ -773,7 +844,7 @@ pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> GeneratedPuzzle 
         solution,
         constraints: specs,
         seed,
-        enginge: eng,
+        engine: eng,
         clue_count: clue_count(&puzzle),
         symmetry: cfg.symmetry,
     }
@@ -926,5 +997,61 @@ mod tests {
             let is_clue_j = bytes[j].is_ascii_digit() && bytes[j] != '.';
             assert_eq!(is_clue_i, is_clue_j);
         }
+    }
+
+    #[test]
+    fn killer_cages_are_orthogonally_connected() {
+        let cfg = GenerationConfig {
+            seed: Some(17),
+            required_variants: vec![VariantKind::Killer],
+            variant_pool: Vec::new(),
+            variant_count: 1..=1,
+            killer_count: 1..=2,
+            killer_size: 3..=4,
+            clue_target: Some(40),
+            minimality: Minimality::AtMost(0),
+            ..Default::default()
+        };
+        let out = generate_random_variant_puzzle(cfg);
+        for spec in out.constraints {
+            if let VariantSpec::Killer { cells, .. } = spec {
+                for &(r, c) in cells.iter() {
+                    let mut has_neighbor = false;
+                    for (dr, dc) in [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)] {
+                        let nr = r as i32 + dr;
+                        let nc = c as i32 + dc;
+                        if cells
+                            .iter()
+                            .any(|&(rr, cc)| rr as i32 == nr && cc as i32 == nc)
+                        {
+                            has_neighbor = true;
+                            break;
+                        }
+                    }
+                    assert!(has_neighbor || cells.len() == 1);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn constraint_cells_prioritized_in_removal_units() {
+        let mut units = vec![vec![0], vec![40], vec![10]];
+        let mut constraint_cells = std::collections::HashSet::new();
+        constraint_cells.insert(10usize);
+        constraint_cells.insert(40usize);
+        let mut rng = SimpleRng::from_seed(123);
+        prioritize_units(&mut units, &constraint_cells, &mut rng);
+        let first_score = units[0]
+            .iter()
+            .filter(|p| constraint_cells.contains(p))
+            .count();
+        let last_score = units
+            .last()
+            .unwrap()
+            .iter()
+            .filter(|p| constraint_cells.contains(p))
+            .count();
+        assert!(first_score >= last_score);
     }
 }
