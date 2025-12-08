@@ -1,9 +1,17 @@
 use std::collections::VecDeque;
 
+use std::ops::Range;
+
 use crate::{
     CellIx, Constraint, Contradiction, Domain, N, NN, Solve, State,
     types::{bit_of_digit, idx},
 };
+
+/// Minimal RNG trait so the engine can randomize branching without depending
+/// on a specific generator implementation.
+pub trait EngineRng {
+    fn gen_range(&mut self, range: Range<usize>) -> usize;
+}
 
 #[derive(Clone, Debug)]
 pub struct Engine {
@@ -156,6 +164,42 @@ impl Engine {
         best.map(|(i, _)| i)
     }
 
+    pub fn choose_mrv_with_rng<R: EngineRng>(&self, rng: &mut R) -> Option<CellIx> {
+        let mut best_size: Option<u32> = None;
+        let mut candidates: Vec<CellIx> = Vec::new();
+
+        for i in 0..NN {
+            let m = self.state.domains[i];
+            let cnt = m.count_ones();
+            if cnt <= 1 {
+                continue;
+            }
+            match best_size {
+                None => {
+                    best_size = Some(cnt);
+                    candidates.clear();
+                    candidates.push(i as CellIx);
+                }
+                Some(best) if cnt < best => {
+                    best_size = Some(cnt);
+                    candidates.clear();
+                    candidates.push(i as CellIx);
+                }
+                Some(best) if cnt == best => {
+                    candidates.push(i as CellIx);
+                }
+                _ => {}
+            }
+        }
+
+        if candidates.is_empty() {
+            None
+        } else {
+            let idx = rng.gen_range(0..candidates.len());
+            Some(candidates[idx])
+        }
+    }
+
     pub fn search(&mut self) -> Result<bool, Contradiction> {
         // enqueue all only at root
         if self.state.trail.is_empty() && self.state.queue.is_empty() {
@@ -231,6 +275,66 @@ impl Engine {
         Ok(false)
     }
 
+    pub fn search_with_rng<R: EngineRng>(&mut self, rng: &mut R) -> Result<bool, Contradiction> {
+        if self.state.trail.is_empty() && self.state.queue.is_empty() {
+            self.enqueue_all();
+        }
+
+        loop {
+            match self.propagate() {
+                Ok(res) => match res {
+                    Solve::Progress => {
+                        if self.solved() {
+                            return Ok(true);
+                        }
+                    }
+                    Solve::Solved | Solve::Stalled => break,
+                },
+                Err(_) => return Ok(false),
+            }
+        }
+
+        if self.solved() {
+            return Ok(true);
+        }
+
+        if self.state.domains.iter().any(|&m| m == 0) {
+            return Ok(false);
+        }
+
+        let i = match self.choose_mrv_with_rng(rng) {
+            None => return Ok(true),
+            Some(i) => i,
+        };
+        let dom = self.state.domains[i as usize];
+        let trail_len = self.state.trail.len();
+
+        let mut bits = [0u16; 9];
+        let mut len = 0usize;
+        let mut m = dom;
+        while m != 0 {
+            let d = m.trailing_zeros() as u8;
+            let bit = bit_of_digit(d);
+            m &= !bit;
+            bits[len] = bit;
+            len += 1;
+        }
+        shuffle_bits(rng, &mut bits[..len]);
+
+        for bit in bits.iter().take(len) {
+            self.branches += 1;
+            if self.state.assign(i, *bit).is_ok() {
+                self.enqueue_cell_constraints(i);
+                if let Ok(true) = self.search_with_rng(rng) {
+                    return Ok(true);
+                }
+            }
+            self.state.backtrack_to(trail_len);
+        }
+
+        Ok(false)
+    }
+
     pub fn count_solutions(&self, max: u32) -> u32 {
         let mut eng = self.clone();
 
@@ -243,8 +347,24 @@ impl Engine {
         count
     }
 
+    pub fn count_solutions_with_rng<R: EngineRng>(&self, max: u32, rng: &mut R) -> u32 {
+        let mut eng = self.clone();
+
+        if eng.state.trail.is_empty() && eng.state.queue.is_empty() {
+            eng.enqueue_all();
+        }
+
+        let mut count = 0;
+        eng.search_limited_with_rng(max, &mut count, rng);
+        count
+    }
+
     pub fn has_unique_solution(&mut self) -> bool {
         self.count_solutions(2) == 1
+    }
+
+    pub fn has_unique_solution_with_rng<R: EngineRng>(&mut self, rng: &mut R) -> bool {
+        self.count_solutions_with_rng(2, rng) == 1
     }
 
     fn search_limited(&mut self, max: u32, count: &mut u32) {
@@ -309,6 +429,93 @@ impl Engine {
 
             self.state.backtrack_to(trail_len);
         }
+    }
+
+    fn search_limited_with_rng<R: EngineRng>(
+        &mut self,
+        max: u32,
+        count: &mut u32,
+        rng: &mut R,
+    ) {
+        if *count >= max {
+            return;
+        }
+
+        loop {
+            match self.propagate() {
+                Ok(Solve::Progress) => {
+                    if self.solved() {
+                        *count += 1;
+                        return;
+                    }
+                }
+                Ok(Solve::Stalled) | Ok(Solve::Solved) => break,
+                Err(Contradiction) => {
+                    return;
+                }
+            }
+        }
+
+        if self.solved() {
+            *count += 1;
+            return;
+        }
+
+        if self.state.domains.iter().any(|&m| m == 0) {
+            return;
+        }
+
+        if *count >= max {
+            return;
+        }
+
+        let i = match self.choose_mrv_with_rng(rng) {
+            None => {
+                *count += 1;
+                return;
+            }
+            Some(i) => i,
+        };
+
+        let dom = self.state.domains[i as usize];
+        let trail_len = self.state.trail.len();
+
+        let mut bits = [0u16; 9];
+        let mut len = 0usize;
+        let mut m = dom;
+        while m != 0 {
+            let d = m.trailing_zeros() as u8;
+            let bit = bit_of_digit(d);
+            m &= !bit;
+            bits[len] = bit;
+            len += 1;
+        }
+        shuffle_bits(rng, &mut bits[..len]);
+
+        for bit in bits.iter().take(len) {
+            self.branches += 1;
+
+            if self.state.assign(i, *bit).is_ok() {
+                self.enqueue_cell_constraints(i);
+                self.search_limited_with_rng(max, count, rng);
+            }
+
+            self.state.backtrack_to(trail_len);
+
+            if *count >= max {
+                break;
+            }
+        }
+    }
+}
+
+fn shuffle_bits<R: EngineRng>(rng: &mut R, slice: &mut [Domain]) {
+    if slice.len() <= 1 {
+        return;
+    }
+    for i in (1..slice.len()).rev() {
+        let j = rng.gen_range(0..(i + 1));
+        slice.swap(i, j);
     }
 }
 
@@ -515,6 +722,30 @@ mod tests {
 
     use super::*;
     use crate::{DIGITS_MASK, Domain, types::bit_of_digit};
+
+    #[derive(Default)]
+    struct SeqRng {
+        outputs: Vec<usize>,
+        pos: usize,
+    }
+
+    impl SeqRng {
+        fn new(outputs: Vec<usize>) -> Self {
+            Self { outputs, pos: 0 }
+        }
+    }
+
+    impl EngineRng for SeqRng {
+        fn gen_range(&mut self, range: Range<usize>) -> usize {
+            let span = range.end - range.start;
+            if span == 0 {
+                return range.start;
+            }
+            let idx = self.outputs.get(self.pos).copied().unwrap_or(0);
+            self.pos += 1;
+            range.start + (idx % span)
+        }
+    }
 
     fn mask(digits: &[u8]) -> Domain {
         digits.iter().fold(0, |acc, &d| acc | bit_of_digit(d))
@@ -763,6 +994,20 @@ mod tests {
     }
 
     #[test]
+    fn choose_mrv_with_rng_uses_random_tie_break() {
+        let mut eng = Engine::new();
+        for d in eng.state.domains.iter_mut() {
+            *d = mask(&[1]);
+        }
+        eng.state.domains[5] = mask(&[1, 2]);
+        eng.state.domains[7] = mask(&[1, 2]);
+
+        let mut rng = SeqRng::new(vec![1]);
+        let mrv = eng.choose_mrv_with_rng(&mut rng).unwrap();
+        assert_eq!(mrv, 7);
+    }
+
+    #[test]
     fn search_returns_true_when_already_solved() {
         let mut eng = Engine::new();
 
@@ -784,5 +1029,17 @@ mod tests {
 
         let res = eng.search();
         assert_eq!(res, Ok(false));
+    }
+
+    #[test]
+    fn search_with_rng_solves_basic_puzzle() {
+        let p = "2...7.1.3.7..8..5.3....6.....6......91..5..28......5.....3....4.2..9..7.5.4.1...6";
+        let mut eng = Engine::new();
+        add_all_sudoku_constraints(&mut eng);
+        eng.load_givens(p).unwrap();
+
+        let mut rng = SeqRng::default();
+        assert!(eng.search_with_rng(&mut rng).unwrap());
+        assert!(eng.solved());
     }
 }

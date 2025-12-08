@@ -1,6 +1,7 @@
 use crate::{
     Engine, NN, add_all_sudoku_constraints, add_arrow, add_killer_cage, add_king_constraints,
     add_knight_constraints, add_kropki_black, add_kropki_white, add_queen_constraints, add_thermo,
+    engine::EngineRng,
     types::{digit_of_bit, idx},
 };
 
@@ -45,7 +46,13 @@ impl SimpleRng {
     }
 }
 
-fn shuffle<T>(rng: &mut SimpleRng, slice: &mut [T]) {
+impl EngineRng for SimpleRng {
+    fn gen_range(&mut self, range: std::ops::Range<usize>) -> usize {
+        SimpleRng::gen_range(self, range)
+    }
+}
+
+fn shuffle<R: EngineRng, T>(rng: &mut R, slice: &mut [T]) {
     let len = slice.len();
     if len <= 1 {
         return;
@@ -680,18 +687,28 @@ pub struct GeneratedPuzzle {
 }
 
 pub fn generate_full_solution(rng: SimpleRng) -> [u8; NN] {
-    generate_full_solution_with(rng, |_| {})
+    let mut rng = rng;
+    generate_full_solution_with_rng(&mut rng, |_| {})
 }
 
-pub fn generate_full_solution_with<F>(mut rng: SimpleRng, extra: F) -> [u8; NN]
+pub fn generate_full_solution_with<F>(rng: SimpleRng, extra: F) -> [u8; NN]
 where
     F: FnOnce(&mut Engine),
+{
+    let mut rng = rng;
+    generate_full_solution_with_rng(&mut rng, extra)
+}
+
+pub fn generate_full_solution_with_rng<F, R>(rng: &mut R, extra: F) -> [u8; NN]
+where
+    F: FnOnce(&mut Engine),
+    R: EngineRng,
 {
     let mut eng = Engine::new();
     add_all_sudoku_constraints(&mut eng);
     extra(&mut eng);
 
-    eng.search().expect("search failed");
+    eng.search_with_rng(rng).expect("search failed");
     assert!(eng.solved());
 
     let mut out = [0u8; NN];
@@ -703,7 +720,7 @@ where
 
     if eng.constraints.is_empty() {
         let mut digits = [1u8, 2, 3, 4, 5, 6, 7, 8, 9];
-        shuffle(&mut rng, &mut digits);
+        shuffle(rng, &mut digits);
 
         let mut perm = [0u8; 10];
         for (i, d) in digits.iter().enumerate() {
@@ -727,7 +744,7 @@ where
     assert!(target_clues < NN);
 
     // make a complete solution
-    let sol = generate_full_solution_with(rng.clone(), extra);
+    let sol = generate_full_solution_with_rng(&mut rng, extra);
     let mut puzzle: Vec<Option<u8>> = sol.iter().copied().map(Some).collect();
 
     // random order of position try to remove
@@ -740,7 +757,7 @@ where
         puzzle[pos] = None;
 
         let puzzle_str = puzzle_vec_to_string(&puzzle);
-        if !has_unique_solution_from_string_with(&puzzle_str, extra) {
+        if !has_unique_solution_from_string_with(&puzzle_str, extra, &mut rng) {
             puzzle[pos] = saved;
         }
         let clues_now = puzzle.iter().filter(|c| c.is_some()).count();
@@ -761,7 +778,7 @@ pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> GeneratedPuzzle 
     let mut specs = instantiate_variants(&cfg, &mut rng);
     println!("specs are: {:?}", specs);
     let spec_clone = specs.clone();
-    let solution = generate_full_solution_with(rng.clone(), |eng| {
+    let solution = generate_full_solution_with_rng(&mut rng, |eng| {
         apply_specs_without_killer_sums(eng, &spec_clone);
     });
 
@@ -810,7 +827,7 @@ pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> GeneratedPuzzle 
                 continue;
             }
             let puzzle_str = puzzle_vec_to_string(&puzzle);
-            if !has_unique_solution_with_specs(&puzzle_str, &specs) {
+            if !has_unique_solution_with_specs(&puzzle_str, &specs, &mut rng) {
                 for (p, v) in saved {
                     puzzle[p] = v;
                 }
@@ -869,9 +886,10 @@ fn puzzle_vec_to_string(puzzle: &[Option<u8>]) -> String {
     s
 }
 
-fn has_unique_solution_from_string_with<F>(puzzle: &str, extra: F) -> bool
+fn has_unique_solution_from_string_with<F, R>(puzzle: &str, extra: F, rng: &mut R) -> bool
 where
     F: Fn(&mut Engine),
+    R: EngineRng,
 {
     let mut eng = Engine::new();
     add_all_sudoku_constraints(&mut eng);
@@ -881,10 +899,10 @@ where
         return false;
     }
 
-    eng.has_unique_solution()
+    eng.has_unique_solution_with_rng(rng)
 }
 
-fn has_unique_solution_with_specs(puzzle: &str, specs: &[VariantSpec]) -> bool {
+fn has_unique_solution_with_specs<R: EngineRng>(puzzle: &str, specs: &[VariantSpec], rng: &mut R) -> bool {
     let mut eng = Engine::new();
     add_all_sudoku_constraints(&mut eng);
     apply_specs(&mut eng, specs);
@@ -893,7 +911,7 @@ fn has_unique_solution_with_specs(puzzle: &str, specs: &[VariantSpec]) -> bool {
         return false;
     }
 
-    eng.has_unique_solution()
+    eng.has_unique_solution_with_rng(rng)
 }
 
 #[cfg(test)]
@@ -973,9 +991,11 @@ mod tests {
         };
         let out = generate_random_variant_puzzle(cfg);
         assert_eq!(out.clue_count, clue_count(&out.puzzle));
+        let mut rng = SimpleRng::from_seed(out.seed);
         assert!(has_unique_solution_with_specs(
             &out.puzzle,
-            &out.constraints
+            &out.constraints,
+            &mut rng
         ));
     }
 

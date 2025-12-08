@@ -10,7 +10,7 @@ mod types;
 pub use analysis::{estimate_difficulty, estimate_difficulty_with};
 pub use constraints::Constraint;
 pub use engine::{
-    Engine, add_all_sudoku_constraints, add_arrow, add_killer_cage, add_king_constraints,
+    Engine, EngineRng, add_all_sudoku_constraints, add_arrow, add_killer_cage, add_king_constraints,
     add_knight_constraints, add_kropki_black, add_kropki_white, add_queen_constraints, add_thermo,
 };
 pub use generator::{
