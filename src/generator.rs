@@ -686,12 +686,12 @@ pub struct GeneratedPuzzle {
     pub symmetry: Option<Symmetry>,
 }
 
-pub fn generate_full_solution(rng: SimpleRng) -> [u8; NN] {
+pub fn generate_full_solution(rng: SimpleRng) -> Result<[u8; NN], String> {
     let mut rng = rng;
     generate_full_solution_with_rng(&mut rng, |_| {})
 }
 
-pub fn generate_full_solution_with<F>(rng: SimpleRng, extra: F) -> [u8; NN]
+pub fn generate_full_solution_with<F>(rng: SimpleRng, extra: F) -> Result<[u8; NN], String>
 where
     F: FnOnce(&mut Engine),
 {
@@ -699,7 +699,7 @@ where
     generate_full_solution_with_rng(&mut rng, extra)
 }
 
-pub fn generate_full_solution_with_rng<F, R>(rng: &mut R, extra: F) -> [u8; NN]
+pub fn generate_full_solution_with_rng<F, R>(rng: &mut R, extra: F) -> Result<[u8; NN], String>
 where
     F: FnOnce(&mut Engine),
     R: EngineRng,
@@ -708,8 +708,12 @@ where
     add_all_sudoku_constraints(&mut eng);
     extra(&mut eng);
 
-    eng.search_with_rng(rng).expect("search failed");
-    assert!(eng.solved());
+    let solved = eng
+        .search_with_rng(rng)
+        .map_err(|_| "search failed".to_string())?;
+    if !solved || !eng.solved() {
+        return Err("generation search did not reach a solution".into());
+    }
 
     let mut out = [0u8; NN];
 
@@ -730,21 +734,25 @@ where
             *cell = perm[*cell as usize];
         }
     }
-    out
+    Ok(out)
 }
 
-pub fn generate_puzzle(target_clues: usize, rng: SimpleRng) -> String {
+pub fn generate_puzzle(target_clues: usize, rng: SimpleRng) -> Result<String, String> {
     generate_puzzle_with(target_clues, rng, |_| {})
 }
 
-pub fn generate_puzzle_with<F>(target_clues: usize, mut rng: SimpleRng, extra: F) -> String
+pub fn generate_puzzle_with<F>(
+    target_clues: usize,
+    mut rng: SimpleRng,
+    extra: F,
+) -> Result<String, String>
 where
     F: Fn(&mut Engine) + Copy,
 {
     assert!(target_clues < NN);
 
     // make a complete solution
-    let sol = generate_full_solution_with_rng(&mut rng, extra);
+    let sol = generate_full_solution_with_rng(&mut rng, extra)?;
     let mut puzzle: Vec<Option<u8>> = sol.iter().copied().map(Some).collect();
 
     // random order of position try to remove
@@ -765,10 +773,10 @@ where
             break;
         }
     }
-    puzzle_vec_to_string(&puzzle)
+    Ok(puzzle_vec_to_string(&puzzle))
 }
 
-pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> GeneratedPuzzle {
+pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> Result<GeneratedPuzzle, String> {
     let mut rng = match cfg.seed {
         Some(seed) => SimpleRng::from_seed(seed),
         None => SimpleRng::new(),
@@ -776,11 +784,10 @@ pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> GeneratedPuzzle 
     let seed = rng.seed();
 
     let mut specs = instantiate_variants(&cfg, &mut rng);
-    println!("specs are: {:?}", specs);
     let spec_clone = specs.clone();
     let solution = generate_full_solution_with_rng(&mut rng, |eng| {
         apply_specs_without_killer_sums(eng, &spec_clone);
-    });
+    })?;
 
     fill_killer_sums(&solution, &mut specs);
 
@@ -852,11 +859,16 @@ pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> GeneratedPuzzle 
     let mut eng = Engine::new();
     add_all_sudoku_constraints(&mut eng);
     apply_specs(&mut eng, &specs);
-    eng.load_givens(&puzzle_str).unwrap();
-    eng.search().unwrap();
-    assert!(eng.solved());
+    eng.load_givens(&puzzle_str)
+        .map_err(|e| format!("failed to load givens: {}", e))?;
+    let solved = eng
+        .search_with_rng(&mut rng)
+        .map_err(|_| "search failed".to_string())?;
+    if !solved || !eng.solved() {
+        return Err("generated puzzle failed to solve after carve".into());
+    }
 
-    GeneratedPuzzle {
+    Ok(GeneratedPuzzle {
         puzzle: puzzle_str,
         solution,
         constraints: specs,
@@ -864,7 +876,7 @@ pub fn generate_random_variant_puzzle(cfg: GenerationConfig) -> GeneratedPuzzle 
         engine: eng,
         clue_count: clue_count(&puzzle),
         symmetry: cfg.symmetry,
-    }
+    })
 }
 
 fn _solution_to_string(sol: &[u8; NN]) -> String {
@@ -902,7 +914,11 @@ where
     eng.has_unique_solution_with_rng(rng)
 }
 
-fn has_unique_solution_with_specs<R: EngineRng>(puzzle: &str, specs: &[VariantSpec], rng: &mut R) -> bool {
+fn has_unique_solution_with_specs<R: EngineRng>(
+    puzzle: &str,
+    specs: &[VariantSpec],
+    rng: &mut R,
+) -> bool {
     let mut eng = Engine::new();
     add_all_sudoku_constraints(&mut eng);
     apply_specs(&mut eng, specs);
@@ -929,7 +945,7 @@ mod tests {
     #[test]
     fn test_generate_puzzle_with_seed() {
         let rng = SimpleRng::from_seed(12134);
-        let puzzle = generate_puzzle_with(80, rng, |_| {});
+        let puzzle = generate_puzzle_with(80, rng, |_| {}).unwrap();
         assert_eq!(clue_count(&puzzle), 80);
         let mut eng = Engine::new();
         add_all_sudoku_constraints(&mut eng);
@@ -942,7 +958,7 @@ mod tests {
     #[test]
     fn generate_full_solution_with_seed_is_valid_grid() {
         let rng = SimpleRng::from_seed(424242);
-        let sol = generate_full_solution(rng);
+        let sol = generate_full_solution(rng).unwrap();
         let puzzle = _solution_to_string(&sol);
 
         let mut eng = Engine::new();
@@ -963,7 +979,7 @@ mod tests {
 
         let rng = SimpleRng::from_seed(20240601);
         let target_clues = 35;
-        let puzzle = generate_puzzle_with(target_clues, rng, extra);
+        let puzzle = generate_puzzle_with(target_clues, rng, extra).unwrap();
         let clues = clue_count(&puzzle);
         assert!(
             clues >= target_clues,
@@ -989,7 +1005,7 @@ mod tests {
             minimality: Minimality::AtMost(0),
             ..Default::default()
         };
-        let out = generate_random_variant_puzzle(cfg);
+        let out = generate_random_variant_puzzle(cfg).unwrap();
         assert_eq!(out.clue_count, clue_count(&out.puzzle));
         let mut rng = SimpleRng::from_seed(out.seed);
         assert!(has_unique_solution_with_specs(
@@ -1009,7 +1025,7 @@ mod tests {
             minimality: Minimality::AtMost(0),
             ..Default::default()
         };
-        let out = generate_random_variant_puzzle(cfg);
+        let out = generate_random_variant_puzzle(cfg).unwrap();
         let bytes: Vec<char> = out.puzzle.chars().collect();
         for i in 0..NN {
             let j = symmetric_of(i, Symmetry::Rotational180);
@@ -1032,7 +1048,7 @@ mod tests {
             minimality: Minimality::AtMost(0),
             ..Default::default()
         };
-        let out = generate_random_variant_puzzle(cfg);
+        let out = generate_random_variant_puzzle(cfg).unwrap();
         for spec in out.constraints {
             if let VariantSpec::Killer { cells, .. } = spec {
                 for &(r, c) in cells.iter() {
