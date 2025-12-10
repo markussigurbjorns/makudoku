@@ -17,6 +17,7 @@ pub struct RenderOptions<'a> {
     pub stroke_bold: f32,
     pub font_family: &'a str,
     pub font_size: f32,
+    pub candidate_font_size: f32,
     pub kropki_radius: f32,
     pub thermo_bulb_radius: f32,
     pub thermo_line_w: f32,
@@ -33,6 +34,7 @@ impl<'a> Default for RenderOptions<'a> {
             stroke_bold: 3.0,
             font_family: "monospace",
             font_size: 26.0,
+            candidate_font_size: 12.0,
             kropki_radius: 7.0,
             thermo_bulb_radius: 15.0,
             thermo_line_w: 9.0,
@@ -90,6 +92,39 @@ impl SvgDoc {
     }
 }
 
+fn write_default_style(svg: &mut SvgDoc, opts: &RenderOptions) {
+    writeln!(
+        svg.buf,
+        r#"<style>
+:root {{
+  --grid-color: #111;
+  --given-color: #111;
+  --user-color: #1a73e8;
+  --candidate-color: #555;
+  --highlight-selected: #cde7ff;
+  --highlight-peer: #e8f0fe;
+  --highlight-constraint: #ffe8c2;
+}}
+.grid line {{ stroke: var(--grid-color); }}
+.grid .thin {{ stroke-width: {thin}; }}
+.grid .bold {{ stroke-width: {bold}; }}
+.grid rect.border {{ stroke: var(--grid-color); stroke-width: {bold}; fill: none; }}
+text.given {{ fill: var(--given-color); font-family: {font}; font-size: {digit_size}px; font-weight: 600; }}
+text.user {{ fill: var(--user-color); font-family: {font}; font-size: {digit_size}px; font-weight: 600; }}
+text.candidate {{ fill: var(--candidate-color); font-family: {font}; font-size: {cand_size}px; }}
+.highlights rect.selected {{ fill: var(--highlight-selected); }}
+.highlights rect.peer {{ fill: var(--highlight-peer); }}
+.highlights rect.constraint {{ fill: var(--highlight-constraint); }}
+</style>"#,
+        thin = opts.stroke_thin,
+        bold = opts.stroke_bold,
+        font = opts.font_family,
+        digit_size = opts.font_size,
+        cand_size = opts.candidate_font_size
+    )
+    .unwrap();
+}
+
 pub fn render_puzzle_svg(
     puzzle: &str,
     constraints: &[Constraint],
@@ -118,37 +153,53 @@ pub fn render_puzzle_svg(
     )
     .unwrap();
 
+    write_default_style(&mut svg, &opts);
+
+    svg.buf.push_str(r#"<g class="constraints under-grid">"#);
     draw_constraints(&layout, &opts, constraints, Layer::UnderGrid, &mut svg)?;
+    svg.buf.push_str("</g>");
+
     draw_grid(&layout, &opts, &mut svg);
+    draw_highlight_layer(&layout, &mut svg);
+
+    svg.buf.push_str(r#"<g class="constraints under-digits">"#);
     draw_constraints(&layout, &opts, constraints, Layer::UnderDigits, &mut svg)?;
+    svg.buf.push_str("</g>");
+
+    draw_candidate_placeholders(&layout, &opts, &mut svg);
     draw_givens(&layout, &opts, &bytes, &mut svg);
+
+    svg.buf
+        .push_str(r#"<g id="user-values" class="user-values"></g>"#);
+
+    svg.buf.push_str(r#"<g class="constraints over-digits">"#);
     draw_constraints(&layout, &opts, constraints, Layer::OverDigits, &mut svg)?;
+    svg.buf.push_str("</g>");
 
     svg.buf.push_str("</svg>");
     Ok(svg.finish())
 }
 
 fn draw_grid(layout: &Layout, opts: &RenderOptions, svg: &mut SvgDoc) {
+    svg.buf.push_str(r#"<g class="grid">"#);
     for i in 1..9 {
         let pos = layout.pad + layout.cell * i as f32;
 
         writeln!(
             svg.buf,
-            r#"<line x1="{x}" y1="{pad}" x2="{x}" y2="{ymax}" stroke="black" stroke-width="{w}" />"#,
+            r#"<line class="thin" x1="{x}" y1="{pad}" x2="{x}" y2="{ymax}" />"#,
             x = pos,
             pad = layout.pad,
             ymax = layout.height() - layout.pad,
-            w = opts.stroke_thin
         )
         .unwrap();
 
         writeln!(
             svg.buf,
-            r#"<line x1="{pad}" y1="{y}" x2="{xmax}" y2="{y}" stroke="black" stroke-width="{w}" />"#,
+            r#"<line class="thin" x1="{pad}" y1="{y}" x2="{xmax}" y2="{y}" />"#,
             pad = layout.pad,
             xmax = layout.width() - layout.pad,
             y = pos,
-            w = opts.stroke_thin
         )
         .unwrap();
     }
@@ -157,21 +208,19 @@ fn draw_grid(layout: &Layout, opts: &RenderOptions, svg: &mut SvgDoc) {
 
         writeln!(
             svg.buf,
-            r#"<line x1="{x}" y1="{pad}" x2="{x}" y2="{ymax}" stroke="black" stroke-width="{w}" />"#,
+            r#"<line class="bold" x1="{x}" y1="{pad}" x2="{x}" y2="{ymax}" />"#,
             x = pos,
             pad = layout.pad,
             ymax = layout.height() - layout.pad,
-            w = opts.stroke_bold
         )
         .unwrap();
 
         writeln!(
             svg.buf,
-            r#"<line x1="{pad}" y1="{y}" x2="{xmax}" y2="{y}" stroke="black" stroke-width="{w}" />"#,
+            r#"<line class="bold" x1="{pad}" y1="{y}" x2="{xmax}" y2="{y}" />"#,
             pad = layout.pad,
             xmax = layout.width() - layout.pad,
             y = pos,
-            w = opts.stroke_bold
         )
         .unwrap();
     }
@@ -183,13 +232,37 @@ fn draw_grid(layout: &Layout, opts: &RenderOptions, svg: &mut SvgDoc) {
 
     writeln!(
         svg.buf,
-        r#"<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="none" stroke="black" stroke-width="{sw}" />"#,
-        sw = opts.stroke_bold,
+        r#"<rect class="border" x="{x}" y="{y}" width="{w}" height="{h}" />"#,
     )
     .unwrap();
+    svg.buf.push_str("</g>");
+}
+
+fn draw_highlight_layer(layout: &Layout, svg: &mut SvgDoc) {
+    svg.buf
+        .push_str(r#"<g id="highlights" class="highlights">"#);
+    for r in 0..9 {
+        for c in 0..9 {
+            let (x, y) = layout.cell_origin(r, c);
+            writeln!(
+                svg.buf,
+                r#"<rect class="highlight-cell" data-row="{r}" data-col="{c}" data-box="{bx}" x="{x}" y="{y}" width="{w}" height="{h}" fill="transparent" stroke="none" pointer-events="all" />"#,
+                r = r,
+                c = c,
+                bx = (r / 3) * 3 + c / 3,
+                x = x,
+                y = y,
+                w = layout.cell,
+                h = layout.cell
+            )
+            .unwrap();
+        }
+    }
+    svg.buf.push_str("</g>");
 }
 
 fn draw_givens(layout: &Layout, opts: &RenderOptions, bytes: &[u8], svg: &mut SvgDoc) {
+    svg.buf.push_str(r#"<g id="givens" class="givens">"#);
     for (i, &ch) in bytes.iter().enumerate() {
         if !(b'1'..=b'9').contains(&ch) {
             continue;
@@ -199,15 +272,52 @@ fn draw_givens(layout: &Layout, opts: &RenderOptions, bytes: &[u8], svg: &mut Sv
         let (cx, cy) = layout.cell_center(row, col);
         writeln!(
             svg.buf,
-            r#"<text x="{x}" y="{y}" text-anchor="middle" dominant-baseline="middle" font-family="{font}" font-size="{size}">{digit}</text>"#,
+            r#"<text class="given" data-row="{row}" data-col="{col}" data-box="{bx}" x="{x}" y="{y}" text-anchor="middle" dominant-baseline="middle">{digit}</text>"#,
             x = cx,
             y = cy + opts.font_size * 0.08,
-            font = opts.font_family,
-            size = opts.font_size,
+            row = row,
+            col = col,
+            bx = (row / 3) * 3 + col / 3,
             digit = ch as char
         )
         .unwrap();
     }
+    svg.buf.push_str("</g>");
+}
+
+fn draw_candidate_placeholders(layout: &Layout, opts: &RenderOptions, svg: &mut SvgDoc) {
+    svg.buf.push_str(
+        r#"<g id="candidates" class="candidates" text-anchor="middle" dominant-baseline="middle">"#,
+    );
+    let step = layout.cell / 3.0;
+    let inset = layout.cell * 0.08;
+    for r in 0..9 {
+        for c in 0..9 {
+            let (ox, oy) = layout.cell_origin(r, c);
+            svg.buf.push_str(&format!(
+                r#"<g class="cell-candidates" data-row="{r}" data-col="{c}" data-box="{bx}">"#,
+                r = r,
+                c = c,
+                bx = (r / 3) * 3 + c / 3
+            ));
+            for digit in 1..=9 {
+                let dx = (digit - 1) % 3;
+                let dy = (digit - 1) / 3;
+                let x = ox + inset + step * (dx as f32 + 0.5);
+                let y = oy + inset + step * (dy as f32 + 0.5) + opts.candidate_font_size * 0.08;
+                writeln!(
+                    svg.buf,
+                    r#"<text class="candidate" data-digit="{d}" x="{x}" y="{y}"></text>"#,
+                    d = digit,
+                    x = x,
+                    y = y
+                )
+                .unwrap();
+            }
+            svg.buf.push_str("</g>");
+        }
+    }
+    svg.buf.push_str("</g>");
 }
 
 fn draw_constraints(
