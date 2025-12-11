@@ -155,14 +155,17 @@ pub fn render_puzzle_svg(
 
     write_default_style(&mut svg, &opts);
 
-    svg.buf.push_str(r#"<g class="constraints under-grid">"#);
+    draw_highlight_layer(&layout, &mut svg);
+
+    svg.buf
+        .push_str(r#"<g class="constraints under-grid" pointer-events="none">"#);
     draw_constraints(&layout, &opts, constraints, Layer::UnderGrid, &mut svg)?;
     svg.buf.push_str("</g>");
 
     draw_grid(&layout, &opts, &mut svg);
-    draw_highlight_layer(&layout, &mut svg);
 
-    svg.buf.push_str(r#"<g class="constraints under-digits">"#);
+    svg.buf
+        .push_str(r#"<g class="constraints under-digits" pointer-events="none">"#);
     draw_constraints(&layout, &opts, constraints, Layer::UnderDigits, &mut svg)?;
     svg.buf.push_str("</g>");
 
@@ -170,9 +173,10 @@ pub fn render_puzzle_svg(
     draw_givens(&layout, &opts, &bytes, &mut svg);
 
     svg.buf
-        .push_str(r#"<g id="user-values" class="user-values"></g>"#);
+        .push_str(r#"<g id="user-values" class="user-values pointer-events="none""></g>"#);
 
-    svg.buf.push_str(r#"<g class="constraints over-digits">"#);
+    svg.buf
+        .push_str(r#"<g class="constraints over-digits" pointer-events="none">"#);
     draw_constraints(&layout, &opts, constraints, Layer::OverDigits, &mut svg)?;
     svg.buf.push_str("</g>");
 
@@ -262,7 +266,8 @@ fn draw_highlight_layer(layout: &Layout, svg: &mut SvgDoc) {
 }
 
 fn draw_givens(layout: &Layout, opts: &RenderOptions, bytes: &[u8], svg: &mut SvgDoc) {
-    svg.buf.push_str(r#"<g id="givens" class="givens">"#);
+    svg.buf
+        .push_str(r#"<g id="givens" class="givens" pointer-events="none">"#);
     for (i, &ch) in bytes.iter().enumerate() {
         if !(b'1'..=b'9').contains(&ch) {
             continue;
@@ -286,25 +291,46 @@ fn draw_givens(layout: &Layout, opts: &RenderOptions, bytes: &[u8], svg: &mut Sv
 }
 
 fn draw_candidate_placeholders(layout: &Layout, opts: &RenderOptions, svg: &mut SvgDoc) {
-    svg.buf.push_str(
-        r#"<g id="candidates" class="candidates" text-anchor="middle" dominant-baseline="middle">"#,
-    );
-    let step = layout.cell / 3.0;
-    let inset = layout.cell * 0.08;
+    let fs = opts.candidate_font_size;
+
+    writeln!(
+        svg.buf,
+        r#"<g id="candidates" class="candidates" text-anchor="middle" dominant-baseline="middle" pointer-events="none" font-size="{fs}">"#,
+        fs = fs
+    )
+    .unwrap();
+
+    let top_margin = layout.cell * 0.25;
+    let left_margin = layout.cell * 0.22;
+    let right_margin = layout.cell * 0.10;
+    let bottom_margin = layout.cell * 0.10;
+
+    let inner_w = layout.cell - left_margin - right_margin;
+    let inner_h = layout.cell - top_margin - bottom_margin;
+
+    let step_x = inner_w / 3.0;
+    let step_y = inner_h / 3.0;
+
     for r in 0..9 {
         for c in 0..9 {
             let (ox, oy) = layout.cell_origin(r, c);
-            svg.buf.push_str(&format!(
+
+            writeln!(
+                svg.buf,
                 r#"<g class="cell-candidates" data-row="{r}" data-col="{c}" data-box="{bx}">"#,
                 r = r,
                 c = c,
                 bx = (r / 3) * 3 + c / 3
-            ));
+            )
+            .unwrap();
+
             for digit in 1..=9 {
                 let dx = (digit - 1) % 3;
                 let dy = (digit - 1) / 3;
-                let x = ox + inset + step * (dx as f32 + 0.5);
-                let y = oy + inset + step * (dy as f32 + 0.5) + opts.candidate_font_size * 0.08;
+
+                let x = ox + left_margin + step_x * (dx as f32 + 0.5);
+                let y = oy + top_margin + step_y * (dy as f32 + 0.5);
+
                 writeln!(
                     svg.buf,
                     r#"<text class="candidate" data-digit="{d}" x="{x}" y="{y}"></text>"#,
@@ -314,9 +340,11 @@ fn draw_candidate_placeholders(layout: &Layout, opts: &RenderOptions, svg: &mut 
                 )
                 .unwrap();
             }
+
             svg.buf.push_str("</g>");
         }
     }
+
     svg.buf.push_str("</g>");
 }
 
