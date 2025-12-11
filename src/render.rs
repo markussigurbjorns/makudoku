@@ -180,7 +180,7 @@ pub fn render_puzzle_svg(
     Ok(svg.finish())
 }
 
-fn draw_grid(layout: &Layout, opts: &RenderOptions, svg: &mut SvgDoc) {
+fn draw_grid(layout: &Layout, _opts: &RenderOptions, svg: &mut SvgDoc) {
     svg.buf.push_str(r#"<g class="grid">"#);
     for i in 1..9 {
         let pos = layout.pad + layout.cell * i as f32;
