@@ -595,6 +595,21 @@ pub enum VariantSpec {
     Queen,
 }
 
+impl VariantSpec {
+    pub fn kind_str(&self) -> &'static str {
+        match self {
+            VariantSpec::KropkiWhite(..) => "kropki_white",
+            VariantSpec::KropkiBlack(..) => "kropki_black",
+            VariantSpec::Thermo(..) => "thermo",
+            VariantSpec::Arrow(..) => "arrow",
+            VariantSpec::Killer { .. } => "killer",
+            VariantSpec::King => "king",
+            VariantSpec::Knight => "knight",
+            VariantSpec::Queen => "queen",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct VariantPoolEntry {
     pub kind: VariantKind,
