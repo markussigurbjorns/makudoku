@@ -674,7 +674,7 @@ impl Default for GenerationConfig {
             ],
             variant_count: 1..=3,
             symmetry: None,
-            clue_target: Some(30),
+            clue_target: Some(24),
             clue_range: None,
             minimality: Minimality::None,
             kropki_white: 6..=12,

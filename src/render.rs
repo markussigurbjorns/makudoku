@@ -467,7 +467,7 @@ fn draw_arrow(
     let (x0, y0) = layout.cell_center(r0, c0);
     writeln!(
         svg.buf,
-        r#"<circle cx="{x}" cy="{y}" r="{r}" fill="none" stroke="gray" stroke-width="{w}" />"#,
+        r#"<circle cx="{x}" cy="{y}" r="{r}" fill="none" stroke="gainsboro" stroke-width="{w}" />"#,
         x = x0,
         y = y0,
         r = opts.arrow_circle_radius,
@@ -509,7 +509,7 @@ fn draw_arrow(
 
     writeln!(
         svg.buf,
-        r#"<path d="{d}" fill="none" stroke="gray" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round" />"#,
+        r#"<path d="{d}" fill="none" stroke="gainsboro" stroke-width="{w}" stroke-linecap="round" stroke-linejoin="round" />"#,
         d = d,
         w = opts.stroke_bold,
     )
@@ -541,7 +541,7 @@ fn draw_arrow(
 
             writeln!(
                 svg.buf,
-                r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="gray" stroke-width="{w}" stroke-linecap="round" />"#,
+                r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="gainsboro" stroke-width="{w}" stroke-linecap="round" />"#,
                 x1 = tip.0,
                 y1 = tip.1,
                 x2 = left.0,
@@ -551,7 +551,7 @@ fn draw_arrow(
             .unwrap();
             writeln!(
                 svg.buf,
-                r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="gray" stroke-width="{w}" stroke-linecap="round" />"#,
+                r#"<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="gainsboro" stroke-width="{w}" stroke-linecap="round" />"#,
                 x1 = tip.0,
                 y1 = tip.1,
                 x2 = right.0,
@@ -585,7 +585,7 @@ fn draw_killer(
 
     writeln!(
         svg.buf,
-        r#"<g class="killer-cage" data-sum="{sum}" fill="none" stroke="darkorange" stroke-width="{w}" stroke-dasharray="6 4">"#,
+        r#"<g class="killer-cage" data-sum="{sum}" fill="none" stroke="black" stroke-width="{w}" stroke-dasharray="6 4">"#,
         sum = sum,
         w = opts.stroke_thin
     )
@@ -683,7 +683,7 @@ fn draw_killer(
     writeln!(
         svg.buf,
         r#"<text x="{x}" y="{y}" font-family="{font}" font-size="{size}"
-         fill="darkorange" stroke="none"
+         fill="black" stroke="none"
          text-anchor="middle" dominant-baseline="middle">{sum}</text>"#,
         x = rect_x + box_w * 0.5,
         y = rect_y + box_h * 0.5,
