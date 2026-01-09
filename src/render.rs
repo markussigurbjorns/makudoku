@@ -11,6 +11,7 @@ pub enum Layer {
 
 #[derive(Clone, Copy)]
 pub struct RenderOptions<'a> {
+    pub printable: bool,
     pub cell_size: f32,
     pub padding: f32,
     pub stroke_thin: f32,
@@ -28,6 +29,7 @@ pub struct RenderOptions<'a> {
 impl<'a> Default for RenderOptions<'a> {
     fn default() -> Self {
         Self {
+            printable: false,
             cell_size: 50.0,
             padding: 10.0,
             stroke_thin: 1.0,
@@ -93,9 +95,34 @@ impl SvgDoc {
 }
 
 fn write_default_style(svg: &mut SvgDoc, opts: &RenderOptions) {
-    writeln!(
-        svg.buf,
-        r#"<style>
+    if opts.printable {
+        writeln!(
+            svg.buf,
+            r#"<style type="text/css">
+.grid line {{ stroke: #111; }}
+.grid .thin {{ stroke-width: {thin}; }}
+.grid .bold {{ stroke-width: {bold}; }}
+.grid rect.border {{ stroke: #111; stroke-width: {bold}; fill: none; }}
+
+text.given {{ fill: #111; font-family: {font}; font-size: {digit_size}px; font-weight: 600; }}
+text.user {{ fill: #1a73e8; font-family: {font}; font-size: {digit_size}px; font-weight: 600; }}
+text.candidate {{ fill: #555; font-family: {font}; font-size: {cand_size}px; }}
+
+.highlights rect.selected {{ fill: #cde7ff; }}
+.highlights rect.peer {{ fill: #e8f0fe; }}
+.highlights rect.constraint {{ fill: #ffe8c2; }}
+</style>"#,
+            thin = opts.stroke_thin,
+            bold = opts.stroke_bold,
+            font = opts.font_family,
+            digit_size = opts.font_size,
+            cand_size = opts.candidate_font_size
+        )
+        .unwrap();
+    } else {
+        writeln!(
+            svg.buf,
+            r#"<style type="text/css">
 :root {{
   --grid-color: #111;
   --given-color: #111;
@@ -116,13 +143,14 @@ text.candidate {{ fill: var(--candidate-color); font-family: {font}; font-size: 
 .highlights rect.peer {{ fill: var(--highlight-peer); }}
 .highlights rect.constraint {{ fill: var(--highlight-constraint); }}
 </style>"#,
-        thin = opts.stroke_thin,
-        bold = opts.stroke_bold,
-        font = opts.font_family,
-        digit_size = opts.font_size,
-        cand_size = opts.candidate_font_size
-    )
-    .unwrap();
+            thin = opts.stroke_thin,
+            bold = opts.stroke_bold,
+            font = opts.font_family,
+            digit_size = opts.font_size,
+            cand_size = opts.candidate_font_size
+        )
+        .unwrap();
+    }
 }
 
 pub fn render_puzzle_svg(
@@ -173,7 +201,7 @@ pub fn render_puzzle_svg(
     draw_givens(&layout, &opts, &bytes, &mut svg);
 
     svg.buf
-        .push_str(r#"<g id="user-values" class="user-values pointer-events="none""></g>"#);
+        .push_str(r#"<g id="user-values" class="user-values" pointer-events="none"></g>"#);
 
     svg.buf
         .push_str(r#"<g class="constraints over-digits" pointer-events="none">"#);
